@@ -36,7 +36,7 @@ export async function searchYouTube(
 ): Promise<YouTubeSearchResult[]> {
     try {
         const response = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(
+            `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=30&q=${encodeURIComponent(
                 query + " karaoke"
             )}&type=video&videoEmbeddable=true&key=${API_KEY}`
         );

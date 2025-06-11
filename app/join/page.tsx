@@ -1,36 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft, Users, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { checkRoomExists } from "@/lib/firebase-service";
+import { toast } from "@/components/ui/use-toast";
+import { Toaster } from "@/components/ui/toaster";
+
+const ROOM_ID_LENGTH = 6;
 
 export default function JoinRoom() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const urlRoomCode = searchParams.get("room");
     const [name, setName] = useState("");
-    const [roomCode, setRoomCode] = useState("");
+    const [roomCode, setRoomCode] = useState(urlRoomCode || "");
+    const [isJoining, setIsJoining] = useState(false);
 
-    const handleJoinRoom = () => {
+    useEffect(() => {
+        if (urlRoomCode && urlRoomCode.length !== ROOM_ID_LENGTH) {
+            toast({
+                title: "Invalid Room ID in URL",
+                description: `The Room ID in the link is invalid. It must be ${ROOM_ID_LENGTH} characters long. Please enter a valid Room ID.`,
+                variant: "destructive",
+            });
+            setRoomCode(""); // Clear the invalid room code from the input
+            // Optionally, remove the invalid 'room' query parameter from the URL
+            // router.replace('/join', undefined); // This might be too aggressive, let user decide.
+        }
+    }, [urlRoomCode]);
+
+    const handleJoinRoom = async () => {
         if (name.trim() && roomCode.trim()) {
-            // Store user name in session storage
+            if (roomCode.trim().length !== ROOM_ID_LENGTH) {
+                toast({
+                    title: "Invalid Room ID Length",
+                    description: `Room ID must be ${ROOM_ID_LENGTH} characters long.`,
+                    variant: "destructive",
+                });
+                return;
+            }
             try {
+                setIsJoining(true);
+
+                // Check if room exists
+                const roomExists = await checkRoomExists(roomCode.trim());
+
+                if (!roomExists) {
+                    toast({
+                        title: "Room Not Found",
+                        description:
+                            "The room you're trying to join doesn't exist",
+                        variant: "destructive",
+                    });
+                    setIsJoining(false);
+                    router.push("/room-not-found");
+                    return;
+                }
+
+                // Store user name in session storage
                 if (typeof window !== "undefined") {
                     sessionStorage.setItem("userName", name.trim());
                 }
+
                 router.push(`/room/${roomCode.trim()}`);
             } catch (error) {
-                console.error("Session storage error:", error);
-                // Continue with navigation even if sessionStorage fails
-                router.push(`/room/${roomCode.trim()}`);
+                console.error("Error joining room:", error);
+                toast({
+                    title: "Error",
+                    description: "Failed to join the room. Please try again.",
+                    variant: "destructive",
+                });
+                setIsJoining(false);
             }
         }
     };
 
     return (
         <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-b from-black to-gray-900">
+            <Toaster />
             <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -91,10 +143,19 @@ export default function JoinRoom() {
 
                     <Button
                         onClick={handleJoinRoom}
-                        disabled={!name.trim() || !roomCode.trim()}
+                        disabled={!name.trim() || !roomCode.trim() || isJoining}
                         className="w-full bg-gradient-to-r from-purple-700 to-purple-500 hover:from-purple-600 hover:to-purple-400 mt-2"
                     >
-                        <Users className="mr-2 h-4 w-4" /> Join Room
+                        {isJoining ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Joining...
+                            </>
+                        ) : (
+                            <>
+                                <Users className="mr-2 h-4 w-4" /> Join Room
+                            </>
+                        )}
                     </Button>
                 </div>
             </motion.div>
@@ -109,6 +170,7 @@ export default function JoinRoom() {
                     <Button
                         variant="ghost"
                         className="text-gray-400 hover:text-gray-300"
+                        disabled={isJoining}
                     >
                         <ArrowLeft className="mr-2 h-4 w-4" /> Back to Home
                     </Button>

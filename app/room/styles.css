@@ -7,3 +7,41 @@
 .hide-scrollbar::-webkit-scrollbar {
     display: none; /* Chrome, Safari, and Opera */
 }
+
+/* Animation classes */
+.animate-pulse-slow {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin-slow {
+    animation: spin 3s linear infinite;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Room styles */
+.glow {
+    text-shadow: 0 0 10px rgba(168, 85, 247, 0.5),
+        0 0 20px rgba(168, 85, 247, 0.3);
+}
+
+.glow-box {
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.1), 0 0 20px rgba(0, 0, 0, 0.5);
+}
