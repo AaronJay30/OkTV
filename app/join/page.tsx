@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Users, Loader2 } from "lucide-react";
@@ -13,7 +13,8 @@ import { Toaster } from "@/components/ui/toaster";
 
 const ROOM_ID_LENGTH = 6;
 
-export default function JoinRoom() {
+// Create a client component that uses searchParams
+function JoinRoomContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const urlRoomCode = searchParams.get("room");
@@ -29,8 +30,6 @@ export default function JoinRoom() {
                 variant: "destructive",
             });
             setRoomCode(""); // Clear the invalid room code from the input
-            // Optionally, remove the invalid 'room' query parameter from the URL
-            // router.replace('/join', undefined); // This might be too aggressive, let user decide.
         }
     }, [urlRoomCode]);
 
@@ -177,5 +176,22 @@ export default function JoinRoom() {
                 </Link>
             </motion.div>
         </main>
+    );
+}
+
+// Create a fallback component to show while the component is loading
+function JoinRoomFallback() {
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-black to-gray-900">
+            <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+        </div>
+    );
+}
+
+export default function JoinRoom() {
+    return (
+        <Suspense fallback={<JoinRoomFallback />}>
+            <JoinRoomContent />
+        </Suspense>
     );
 }
