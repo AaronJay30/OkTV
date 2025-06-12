@@ -628,9 +628,6 @@ export default function Room() {
             queueCombined.length === 0 &&
             currentSongCombined
         ) {
-            console.log(
-                "Failsafe: Queue is empty, clearing current song from page.tsx"
-            );
             updateCurrentSong(roomId, null).catch((err) =>
                 console.error("Failsafe current song clear error:", err)
             );
@@ -655,9 +652,6 @@ export default function Room() {
             !currentSongCombined &&
             isPlayingCombined
         ) {
-            console.log(
-                "Failsafe: No current song, but player is playing. Stopping."
-            );
             updatePlayerState(roomId, false, isMutedCombined).catch(
                 (
                     err // Use isMutedCombined
