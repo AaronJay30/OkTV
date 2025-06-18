@@ -30,8 +30,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # Docker
-Dockerfile
-docker-compose.yml
 
 # System files
 .DS_Store
