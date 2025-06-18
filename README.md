@@ -49,6 +49,46 @@ OKtv is packed with features to make your online karaoke sessions seamless and f
     -   View users in the room (Users tab visible only to admins).
 -   **Modern Look & Feel:** Built with Tailwind CSS and Shadcn/UI for a polished experience.
 
+## 🚀 New in Version 1.1
+
+### 🐳 Docker Support
+
+-   **Development Environment:** Easily run the application in a Docker container for consistent development environments
+-   **Docker Compose Integration:** Start the application with all dependencies using a single command
+-   **Hot Reloading:** Changes made to code are reflected in real-time thanks to volume mounting
+-   **Environment Consistency:** Ensures the same Node.js version and dependencies for all developers
+
+### 📄 Docker Setup
+
+OKtv now includes Docker configuration for development:
+
+```bash
+# Build and start the application using Docker Compose
+docker-compose up --build
+
+# Run the application in the background
+docker-compose up -d
+
+# Stop the application
+docker-compose down
+```
+
+All Docker commands are also available as npm scripts:
+
+```bash
+# Start the development environment
+pnpm docker:dev
+
+# Build the Docker image
+pnpm docker:build
+
+# Start the Docker container
+pnpm docker:start
+
+# Start the Docker container in detached mode
+pnpm docker:start:detached
+```
+
 ## 🚀 Getting Started
 
 ### Prerequisites

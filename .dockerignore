@@ -1,0 +1,40 @@
+# Versioning and metadata
+.git
+.gitignore
+.dockerignore
+
+# Build dependencies
+node_modules
+dist
+.next
+out
+
+# Environment (contains sensitive data)
+# .env
+# .env.*
+
+# Files not required for production
+README.md
+IMPLEMENTATION_ROADMAP.md
+**/tests
+**/__tests__
+**/*.test.js
+**/*.spec.js
+.eslintrc
+.prettierrc
+jest.config.js
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+
+# System files
+.DS_Store
+*.pem
+
+# Coverage
+coverage
+.nyc_output

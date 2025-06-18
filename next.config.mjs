@@ -12,6 +12,7 @@ const nextConfig = {
     env: {
         YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY,
     },
+    output: "standalone", // Optimized for Docker deployments
 };
 
 export default nextConfig;
