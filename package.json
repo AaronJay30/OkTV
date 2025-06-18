@@ -8,7 +8,7 @@
         "start": "next start",
         "lint": "next lint",
         "docker:build": "docker build -t oktv:latest .",
-        "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+        "docker:dev": "docker-compose -f docker-compose.yml up",
         "docker:start": "docker-compose up",
         "docker:start:detached": "docker-compose up -d"
     },
