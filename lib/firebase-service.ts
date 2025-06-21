@@ -59,7 +59,8 @@ export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
 export const createRoom = async (
     roomId: string,
     adminUser: User,
-    micFeatureEnabled: boolean = false
+    micFeatureEnabled: boolean = false,
+    scorerEnabled: boolean = false
 ): Promise<void> => {
     // Clean up old rooms before creating a new one
     try {
@@ -74,13 +75,13 @@ export const createRoom = async (
     // Use adminUser.id (which should be "admin") as the key for the admin user
     const adminUserPath = `rooms/${roomId}/users/${adminUser.id}`;
     const adminUserRef = ref(rtdb, adminUserPath);
-
     await set(roomRef, {
         createdAt: new Date().toISOString(),
         currentSong: null,
         isPlaying: false,
         isMuted: false,
         micFeatureEnabled: micFeatureEnabled,
+        scorerEnabled: scorerEnabled,
     });
 
     // Add admin user directly with their specified ID

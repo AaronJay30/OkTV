@@ -19,6 +19,12 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function Home() {
     const router = useRouter();
@@ -28,6 +34,7 @@ export default function Home() {
     const [isCreating, setIsCreating] = useState(false);
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
+    const [scorerEnabled, setScorerEnabled] = useState(false); // New state for scorer feature
 
     const handleCreateRoomClick = () => {
         setShowCreateDialog(true);
@@ -40,13 +47,12 @@ export default function Home() {
             const roomCode = Math.random()
                 .toString(36)
                 .substring(2, 8)
-                .toUpperCase();
-
-            // Create the room in Firebase with the mic feature setting
+                .toUpperCase(); // Create the room in Firebase with the mic feature setting
             await createRoom(
                 roomCode,
                 { id: "admin", name: "Admin", isAdmin: true },
-                micFeatureEnabled
+                micFeatureEnabled,
+                scorerEnabled
             );
 
             router.push(`/room/${roomCode}?admin=true`);
@@ -90,7 +96,6 @@ export default function Home() {
             }
         }
     };
-
     return (
         <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-b from-black to-gray-900">
             <Toaster />
@@ -250,15 +255,34 @@ export default function Home() {
                             creating.
                         </DialogDescription>
                     </DialogHeader>
-
                     <div className="py-4 space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
+                                {" "}
                                 <Label
                                     htmlFor="micFeature"
-                                    className="text-white"
+                                    className="text-white flex items-center"
                                 >
-                                    Phone as Microphone
+                                    {" "}
+                                    Phone as Microphone{" "}
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
+                                                    BETA
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="bg-gray-800 text-white border-gray-700">
+                                                <p>
+                                                    This feature is still in
+                                                    testing and may not work as
+                                                    expected. It may work
+                                                    intermittently or not at
+                                                    all.
+                                                </p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
                                 </Label>
                                 <p className="text-sm text-gray-400">
                                     Allow users to use their phones as
@@ -272,8 +296,48 @@ export default function Home() {
                                 className="data-[state=checked]:bg-purple-500"
                             />
                         </div>
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                {" "}
+                                <Label
+                                    htmlFor="scorerEnabled"
+                                    className="text-white flex items-center"
+                                >
+                                    {" "}
+                                    Karaoke Scorer{" "}
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
+                                                    BETA
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="bg-gray-800 text-white border-gray-700">
+                                                <p>
+                                                    This feature is still in
+                                                    testing and may not work as
+                                                    expected. Scores are
+                                                    randomly generated and may
+                                                    not reflect actual
+                                                    performance.
+                                                </p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </Label>
+                                <p className="text-sm text-gray-400">
+                                    Display a random score after each song
+                                    performance
+                                </p>
+                            </div>
+                            <Switch
+                                id="scorerEnabled"
+                                checked={scorerEnabled}
+                                onCheckedChange={setScorerEnabled}
+                                className="data-[state=checked]:bg-purple-500"
+                            />
+                        </div>
                     </div>
-
                     <DialogFooter>
                         <Button
                             variant="outline"
@@ -296,7 +360,7 @@ export default function Home() {
                                 "Create Room"
                             )}
                         </Button>
-                    </DialogFooter>
+                    </DialogFooter>{" "}
                 </DialogContent>
             </Dialog>
         </main>
