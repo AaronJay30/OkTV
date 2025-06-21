@@ -100,11 +100,16 @@ export function useMicrophone(): UseMicrophoneReturn {
                 throw new Error(
                     "Your browser doesn't support microphone access"
                 );
-            }
-
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-            });
+            }        // Updated audio constraints with low-latency optimizations
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: false,  // Disable echo cancellation to reduce processing delay
+                noiseSuppression: false,  // Disable noise suppression to reduce processing delay
+                autoGainControl: false,   // Disable auto gain to reduce processing delay
+                sampleRate: 48000,        // Higher sample rate can help with quality
+                channelCount: 1           // Mono is sufficient for voice and has less overhead
+            },
+        });
             setMediaStream(stream);
             setIsMicOn(true);
             setPermissionStatus("granted");

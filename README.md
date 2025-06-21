@@ -109,6 +109,16 @@ OKtv now includes a powerful microphone integration that turns any device into a
     -   Volume slider for video playback (replaces basic mute button)
     -   More responsive controls with visual feedback
 
+### 🎤 Microphone & Audio
+
+-   **Live Microphone Support:** Users can turn on their microphone to sing along with the music.
+-   **Host Audio Control:** Room hosts can manage participant microphones.
+-   **Low-Latency Audio Optimization:** Advanced audio processing to minimize delay between microphone input and audio output, providing better synchronization with music.
+    -   Optimized audio constraints for minimal processing delay
+    -   WebRTC configuration for prioritizing real-time audio
+    -   Web Audio API integration for minimal buffer sizes and direct audio routing
+    -   Prioritized audio packet delivery for consistent streaming
+
 ### 💡 Technical Features
 
 -   **WebRTC Signaling:** Firebase Realtime Database for WebRTC connection setup

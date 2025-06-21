@@ -13,6 +13,10 @@ import {
     off,
 } from "firebase/database";
 import { rtdb } from "./firebase";
+import {
+    createLowLatencyAudioStream,
+    optimizePeerConnectionForAudio,
+} from "./audio-optimizer";
 
 /**
  * Signal types for WebRTC communication
@@ -48,7 +52,80 @@ export function createPeerConnection(): RTCPeerConnection {
         iceCandidatePoolSize: 10,
     };
 
-    return new RTCPeerConnection(configuration);
+    const pc = new RTCPeerConnection(configuration);
+
+    // Optimize for audio performance with minimal latency
+    try {
+        // Set codec preferences to favor Opus with low delay settings
+        if (
+            RTCRtpSender.getCapabilities &&
+            RTCRtpSender.getCapabilities("audio")
+        ) {
+            const transceivers = pc.getTransceivers();
+            const capabilities = RTCRtpSender.getCapabilities("audio");
+
+            if (capabilities && capabilities.codecs) {
+                // Prioritize Opus codec which is better for low latency audio
+                const preferredCodecs = capabilities.codecs
+                    .filter(
+                        (codec) => codec.mimeType.toLowerCase() === "audio/opus"
+                    )
+                    .concat(
+                        capabilities.codecs.filter(
+                            (codec) =>
+                                codec.mimeType.toLowerCase() !== "audio/opus"
+                        )
+                    );
+
+                transceivers.forEach((transceiver) => {
+                    if (
+                        transceiver.sender.track &&
+                        transceiver.sender.track.kind === "audio"
+                    ) {
+                        try {
+                            transceiver.setCodecPreferences(preferredCodecs);
+                        } catch (e) {
+                            console.warn("Failed to set codec preferences:", e);
+                        }
+                    }
+                });
+            }
+        }
+
+        // Set parameters to prioritize audio packets (Chrome-specific)
+        pc.addEventListener("track", (event) => {
+            if (event.track.kind === "audio") {
+                const audioSender = pc
+                    .getSenders()
+                    .find(
+                        (sender) =>
+                            sender.track && sender.track.kind === "audio"
+                    );
+                if (audioSender && audioSender.setParameters) {
+                    const params = audioSender.getParameters();
+                    if (params.encodings && params.encodings.length > 0) {
+                        // Set high priority for all audio tracks
+                        params.encodings.forEach((encoding) => {
+                            encoding.priority = "high";
+                            encoding.networkPriority = "high";
+                        });
+                        audioSender
+                            .setParameters(params)
+                            .catch((e) =>
+                                console.warn(
+                                    "Failed to set sender parameters for priority:",
+                                    e
+                                )
+                            );
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        console.warn("Could not set codec preferences for low latency:", err);
+    }
+
+    return pc;
 }
 
 /**
@@ -283,11 +360,22 @@ export class MicrophoneRTCManager {
             }
         }
 
-        this.localStream = stream;
+        // Process the audio stream for low latency
+        const optimizedStream = createLowLatencyAudioStream(stream, {
+            bufferSize: 256, // Low buffer size for minimal latency
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+        });
+
+        this.localStream = optimizedStream;
         this.peerConnection = createPeerConnection();
 
-        // Add all tracks from the stream to the peer connection
-        stream.getTracks().forEach((track) => {
+        // Apply WebRTC optimizations for low latency audio
+        optimizePeerConnectionForAudio(this.peerConnection);
+
+        // Add all tracks from the optimized stream to the peer connection
+        optimizedStream.getTracks().forEach((track) => {
             if (this.peerConnection && this.localStream) {
                 this.peerConnection.addTrack(track, this.localStream);
             }
@@ -393,7 +481,6 @@ export class MicrophoneRTCManager {
             }
         );
     }
-
     /**
      * Closes the WebRTC connection and cleans up resources
      */
@@ -408,6 +495,20 @@ export class MicrophoneRTCManager {
         if (this.peerConnection) {
             this.peerConnection.close();
             this.peerConnection = null;
+        }
+
+        // Clean up audio processing resources
+        if (this.localStream) {
+            // Stop all tracks
+            this.localStream.getTracks().forEach((track) => track.stop());
+
+            // Clean up any audio context associated with the stream
+            if ((this.localStream as any)._audioContext) {
+                (this.localStream as any)._audioContext.close();
+                (this.localStream as any)._audioContext = null;
+            }
+
+            this.localStream = null;
         }
 
         // Update user's mic status in Firebase
@@ -492,12 +593,66 @@ export class AdminRTCManager {
         // Create a new peer connection for this user if one doesn't exist
         if (!this.peerConnections.has(userId)) {
             const peerConnection = createPeerConnection();
-            this.peerConnections.set(userId, peerConnection);
 
-            // Set up event handlers for this connection
+            // Apply audio optimizations for low latency
+            optimizePeerConnectionForAudio(peerConnection);
+
+            this.peerConnections.set(userId, peerConnection); // Set up event handlers for this connection
             peerConnection.ontrack = (event) => {
                 const [stream] = event.streams;
                 this.userStreams.set(userId, stream);
+
+                // Create audio element with optimized settings for low latency playback
+                const existingAudioElement = document.getElementById(
+                    `audio-${userId}`
+                ) as HTMLAudioElement;
+                if (!existingAudioElement) {
+                    const audioElement = document.createElement("audio");
+                    audioElement.id = `audio-${userId}`;
+                    audioElement.autoplay = true;
+                    // Set attributes for low latency
+                    audioElement.setAttribute("webkit-playsinline", "true");
+                    audioElement.setAttribute("playsinline", "true");
+                    audioElement.crossOrigin = "anonymous";
+                    audioElement.volume = 1.0;
+
+                    // Critical for low latency
+                    try {
+                        // These properties help reduce audio output latency
+                        if ("mozFrameBufferLength" in audioElement) {
+                            // Firefox specific
+                            (audioElement as any).mozFrameBufferLength = 256;
+                        }
+
+                        // Modern browsers support these settings
+                        audioElement.preservesPitch = false;
+
+                        // Decrease output buffering to minimum acceptable value
+                        const audioContext = new (window.AudioContext ||
+                            (window as any).webkitAudioContext)();
+                        const source =
+                            audioContext.createMediaStreamSource(stream);
+                        const destination =
+                            audioContext.createMediaStreamDestination();
+
+                        // Connect directly with minimal processing
+                        source.connect(destination);
+
+                        // Use the processed stream
+                        audioElement.srcObject = destination.stream;
+
+                        // Keep reference to prevent garbage collection
+                        (audioElement as any)._audioContext = audioContext;
+                    } catch (e) {
+                        console.warn(
+                            "Advanced audio optimization failed, using standard method:",
+                            e
+                        );
+                        audioElement.srcObject = stream;
+                    }
+
+                    document.body.appendChild(audioElement);
+                }
 
                 if (this.onUserStreamCallback) {
                     this.onUserStreamCallback(userId, stream, "add");
@@ -617,7 +772,6 @@ export class AdminRTCManager {
             throw error;
         }
     }
-
     /**
      * Removes a user's connection
      * @param userId The ID of the user
@@ -633,6 +787,26 @@ export class AdminRTCManager {
         if (stream) {
             stream.getTracks().forEach((track) => track.stop());
             this.userStreams.delete(userId);
+
+            // Clean up audio element and any audio contexts
+            const audioElement = document.getElementById(
+                `audio-${userId}`
+            ) as HTMLAudioElement;
+            if (audioElement) {
+                if (audioElement.srcObject) {
+                    const stream = audioElement.srcObject as MediaStream;
+                    stream.getTracks().forEach((track) => track.stop());
+                }
+
+                // Clean up any audio context
+                if ((audioElement as any)._audioContext) {
+                    (audioElement as any)._audioContext.close();
+                    (audioElement as any)._audioContext = null;
+                }
+
+                audioElement.srcObject = null;
+                audioElement.remove();
+            }
 
             if (this.onUserStreamCallback) {
                 this.onUserStreamCallback(userId, null, "remove");
