@@ -30,6 +30,10 @@ import {
     Users,
     Eye, // Added
     EyeOff, // Added
+    Mic,
+    MicOff,
+    Volume1,
+    Volume,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
@@ -46,6 +50,8 @@ import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { searchYouTube } from "@/lib/youtube";
 import type { ComponentType } from "react";
+import useMicrophone from "@/hooks/useMicrophone";
+import { Slider } from "@/components/ui/slider";
 import {
     createRoom,
     checkRoomExists,
@@ -65,6 +71,11 @@ import {
     useFirebaseRoom,
     useQueueAndCurrentSong,
 } from "@/lib/firebase-hooks";
+import {
+    MicrophoneRTCManager,
+    AdminRTCManager,
+    updateUserMicStatus,
+} from "@/lib/webrtc-service";
 
 // Define YouTube component props type
 interface YouTubeProps {
@@ -115,6 +126,8 @@ interface User {
     id: string;
     name: string;
     isAdmin: boolean;
+    isMicOn?: boolean;
+    isMutedByAdmin?: boolean;
 }
 
 type RoomValidationStatus =
@@ -149,6 +162,32 @@ export default function Room() {
     const [origin, setOrigin] = useState("");
     const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
+
+    // Microphone feature states
+    const [isMutedByAdmin, setIsMutedByAdmin] = useState(false);
+    // Use the useMicrophone hook to handle microphone access
+    const {
+        isMicOn,
+        mediaStream,
+        error: micError,
+        permissionStatus: micPermissionStatus,
+        startMicrophone,
+        stopMicrophone,
+    } = useMicrophone();
+
+    // Volume control states
+    const [videoVolume, setVideoVolume] = useState(100); // 0-100 for video volume
+    const [showVolumeSlider, setShowVolumeSlider] = useState(false); // Show/hide video volume slider
+    const [userMicVolumes, setUserMicVolumes] = useState<{
+        [userId: string]: number;
+    }>({});
+
+    // WebRTC managers refs
+    const micRTCManagerRef = useRef<MicrophoneRTCManager | null>(null);
+    const adminRTCManagerRef = useRef<AdminRTCManager | null>(null);
+    const [connectedUsers, setConnectedUsers] = useState<{
+        [userId: string]: boolean;
+    }>({});
 
     // Firebase hooks (unconditional)
     const [users, usersLoading, usersError] = useFirebaseUsers(roomId);
@@ -228,29 +267,6 @@ export default function Room() {
         }
     };
 
-    // Handle copying room code
-    const handleCopyRoomCode = () => {
-        if (origin) {
-            navigator.clipboard.writeText(`${origin}/join?room=${roomId}`);
-            toast({
-                title: "Join Link Copied!",
-                description: "Share it with your friends.",
-            });
-        } else {
-            navigator.clipboard.writeText(roomId); // Fallback if origin is not yet set
-            toast({ title: "Room ID Copied!" });
-        }
-    };
-
-    // Handle copying just the room ID
-    const handleCopyJustRoomId = () => {
-        navigator.clipboard.writeText(roomId);
-        toast({
-            title: "Room ID Copied!",
-            description: "Just the ID, ready to paste!",
-        });
-    };
-
     // Effect for Room ID Length Validation
     useEffect(() => {
         if (roomValidationStatus !== "idle" || !roomId) return;
@@ -282,7 +298,251 @@ export default function Room() {
             }
         };
         check();
-    }, [roomId, router, roomValidationStatus, isAdmin]);
+    }, [roomId, router, roomValidationStatus, isAdmin]); // Check for microphone permissions when the component loads
+    useEffect(() => {
+        // This is now handled by the useMicrophone hook
+        // We just need to handle any errors that occur
+        if (micError) {
+            toast({
+                title: "Microphone Error",
+                description: micError,
+                variant: "destructive",
+            });
+        }
+    }, [micError]); // Handle microphone toggle
+    const handleMicToggle = async () => {
+        // Don't allow toggling if the admin has muted the user
+        if (isMutedByAdmin) {
+            return;
+        }
+
+        try {
+            if (!isMicOn) {
+                // Start the microphone
+                const stream = await startMicrophone();
+
+                if (stream && !isAdmin && firebaseUserId) {
+                    // Initialize the WebRTC connection
+                    try {
+                        // Create a new MicrophoneRTCManager if it doesn't exist
+                        if (!micRTCManagerRef.current) {
+                            micRTCManagerRef.current = new MicrophoneRTCManager(
+                                roomId,
+                                firebaseUserId
+                            ); // Set up mute callback
+                            micRTCManagerRef.current.setOnMutedCallback(
+                                (isMuted: boolean) => {
+                                    setIsMutedByAdmin(isMuted);
+                                    if (isMuted && isMicOn) {
+                                        // Turn off the microphone if the admin mutes the user
+                                        stopMicrophone();
+
+                                        // Show notification to user
+                                        toast({
+                                            title: "Microphone disabled",
+                                            description:
+                                                "The host has muted your microphone",
+                                            variant: "destructive",
+                                        });
+
+                                        // Close the WebRTC connection when muted by admin
+                                        if (
+                                            micRTCManagerRef.current &&
+                                            firebaseUserId
+                                        ) {
+                                            micRTCManagerRef.current
+                                                .close()
+                                                .catch((err) =>
+                                                    console.error(
+                                                        "Error closing WebRTC connection after admin mute:",
+                                                        err
+                                                    )
+                                                );
+                                        }
+                                    } else if (!isMuted && !isMicOn) {
+                                        // Notify user they've been unmuted but need to turn mic back on
+                                        toast({
+                                            title: "Microphone unmuted",
+                                            description:
+                                                "The host has unmuted you. You can now turn your microphone back on.",
+                                        });
+                                    }
+                                }
+                            );
+                        }
+
+                        // Initialize the WebRTC connection with the media stream
+                        await micRTCManagerRef.current.initialize(stream);
+
+                        // Update the mic status in Firebase
+                        await updateUserMicStatus(roomId, firebaseUserId, true);
+
+                        toast({
+                            title: "Microphone connected",
+                            description: "Your microphone is now active",
+                        });
+                    } catch (rtcError) {
+                        console.error("Error initializing WebRTC:", rtcError);
+                        // Stop the microphone if the WebRTC connection fails
+                        stopMicrophone();
+
+                        toast({
+                            title: "Connection error",
+                            description:
+                                "Failed to connect your microphone to the room",
+                            variant: "destructive",
+                        });
+                    }
+                }
+            } else {
+                // Stop the microphone
+                stopMicrophone();
+
+                // Close the WebRTC connection
+                if (micRTCManagerRef.current && firebaseUserId) {
+                    await micRTCManagerRef.current.close();
+
+                    // Update the mic status in Firebase
+                    await updateUserMicStatus(roomId, firebaseUserId, false);
+
+                    toast({
+                        title: "Microphone disconnected",
+                        description: "Your microphone is now off",
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error toggling microphone:", error);
+            // Error handling is done by the hook itself
+            toast({
+                title: "Microphone error",
+                description:
+                    "An unexpected error occurred with your microphone.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    // Initialize WebRTC for the admin
+    useEffect(() => {
+        if (
+            !isAdmin ||
+            !isInitialized ||
+            !roomId ||
+            !roomData?.micFeatureEnabled
+        ) {
+            return;
+        }
+
+        const initializeAdminRTC = async () => {
+            try {
+                // Create a new AdminRTCManager if it doesn't exist
+                if (!adminRTCManagerRef.current) {
+                    adminRTCManagerRef.current = new AdminRTCManager(roomId);
+
+                    // Set up user stream callback
+                    adminRTCManagerRef.current.setOnUserStreamCallback(
+                        (userId, stream, event) => {
+                            setConnectedUsers((prev) => {
+                                const updated = { ...prev };
+                                if (event === "add") {
+                                    updated[userId] = true;
+                                } else {
+                                    delete updated[userId];
+                                }
+                                return updated;
+                            }); // Here you would also handle playing the audio from the stream
+                            if (stream && event === "add") {
+                                console.log(
+                                    `User ${userId} microphone connected`
+                                );
+
+                                // Remove any existing audio element for this user
+                                const existingAudio = document.getElementById(
+                                    `audio-${userId}`
+                                ) as HTMLAudioElement;
+
+                                if (existingAudio) {
+                                    if (existingAudio.srcObject) {
+                                        const oldStream =
+                                            existingAudio.srcObject as MediaStream;
+                                        oldStream
+                                            .getTracks()
+                                            .forEach((track) => track.stop());
+                                    }
+                                    existingAudio.srcObject = null;
+                                    existingAudio.remove();
+                                }
+
+                                // Create a new audio element to play the stream
+                                const audioElement = new Audio();
+                                audioElement.srcObject = stream;
+                                audioElement.id = `audio-${userId}`;
+                                audioElement.autoplay = true;
+
+                                // Add the audio element to the DOM (hidden)
+                                audioElement.style.display = "none";
+                                document.body.appendChild(audioElement);
+
+                                toast({
+                                    title: "User microphone connected",
+                                    description: `A user has turned on their microphone`,
+                                });
+                            } else if (event === "remove") {
+                                console.log(
+                                    `User ${userId} microphone disconnected`
+                                );
+
+                                // Remove the audio element for this user
+                                const audioElement = document.getElementById(
+                                    `audio-${userId}`
+                                ) as HTMLAudioElement;
+                                if (audioElement) {
+                                    if (audioElement.srcObject) {
+                                        const stream =
+                                            audioElement.srcObject as MediaStream;
+                                        stream
+                                            .getTracks()
+                                            .forEach((track) => track.stop());
+                                    }
+                                    audioElement.srcObject = null;
+                                    audioElement.remove();
+                                }
+                            }
+                        }
+                    );
+
+                    // Initialize the AdminRTCManager
+                    await adminRTCManagerRef.current.initialize();
+
+                    console.log("Admin WebRTC initialized");
+                }
+            } catch (error) {
+                console.error("Error initializing admin WebRTC:", error);
+                toast({
+                    title: "WebRTC error",
+                    description: "Failed to initialize microphone service",
+                    variant: "destructive",
+                });
+            }
+        };
+
+        initializeAdminRTC();
+
+        // Cleanup
+        return () => {
+            if (adminRTCManagerRef.current) {
+                // Close all connections
+                adminRTCManagerRef.current.close();
+                adminRTCManagerRef.current = null;
+
+                // Remove all audio elements
+                document
+                    .querySelectorAll('[id^="audio-"]')
+                    .forEach((el) => el.remove());
+            }
+        };
+    }, [isAdmin, isInitialized, roomId, roomData?.micFeatureEnabled]);
 
     // Set origin URL on client side, only when room is validated
     useEffect(() => {
@@ -378,15 +638,26 @@ export default function Room() {
             setIsInitialized(true);
         };
 
-        initializeRoomLogic();
-
-        // Clean up when component unmounts
+        initializeRoomLogic(); // Clean up when component unmounts
         return () => {
             if (
                 firebaseUserId &&
                 firebaseUserId !== "admin" &&
                 roomValidationStatus === "valid"
             ) {
+                // Clean up WebRTC connection if active
+                if (micRTCManagerRef.current) {
+                    micRTCManagerRef.current
+                        .close()
+                        .catch((err) =>
+                            console.error(
+                                "Error closing WebRTC connection:",
+                                err
+                            )
+                        );
+                    micRTCManagerRef.current = null;
+                }
+
                 checkRoomExists(roomId)
                     .then((exists) => {
                         if (exists) {
@@ -562,6 +833,13 @@ export default function Room() {
             try {
                 if (isMutedCombined) {
                     playerRef.current.unMute();
+                    // Restore last volume when unmuting
+                    if (videoVolume > 0) {
+                        playerRef.current.setVolume(videoVolume);
+                    } else {
+                        playerRef.current.setVolume(50);
+                        setVideoVolume(50);
+                    }
                 } else {
                     playerRef.current.mute();
                 }
@@ -577,99 +855,51 @@ export default function Room() {
         }
     };
 
-    // Handle player ready
-    const onPlayerReady = (event: any) => {
-        playerRef.current = event.target;
-        // Autoplay if a song is already set and supposed to be playing
-        if (currentSongCombined && isPlayingCombined) {
-            playerRef.current.playVideo();
-        }
-        // Set initial mute state
-        if (isMutedCombined) {
-            playerRef.current.mute();
-        } else {
-            playerRef.current.unMute();
-        }
-    };
+    // Handle video volume change
+    const handleVideoVolumeChange = (value: number[]) => {
+        const newVolume = value[0];
+        setVideoVolume(newVolume);
 
-    // Handle player state change
-    const onPlayerStateChange = async (event: any) => {
-        // event.data values:
-        // -1 (unstarted)
-        //  0 (ended)
-        //  1 (playing)
-        //  2 (paused)
-        //  3 (buffering)
-        //  5 (video cued)
-        if (event.data === 0 && isAdmin) {
-            // Song ended
-            await queueActions.handleSongEnded(); // Use new action
-        } else if (event.data === 1) {
-            // Song is playing
-            if (!isPlayingCombined && isAdmin) {
-                // Use isPlayingCombined
-                await updatePlayerState(roomId, true, isMutedCombined); // Use isMutedCombined
-            }
-        } else if (event.data === 2) {
-            // Song is paused
-            if (isPlayingCombined && isAdmin) {
-                // Use isPlayingCombined
-                await updatePlayerState(roomId, false, isMutedCombined); // Use isMutedCombined
+        if (playerRef.current && isAdmin) {
+            try {
+                if (newVolume === 0) {
+                    playerRef.current.mute();
+                    updatePlayerState(roomId, isPlayingCombined, true);
+                } else {
+                    if (isMutedCombined) {
+                        playerRef.current.unMute();
+                        updatePlayerState(roomId, isPlayingCombined, false);
+                    }
+                    playerRef.current.setVolume(newVolume);
+                }
+            } catch (error) {
+                console.error("Error setting video volume:", error);
             }
         }
     };
 
-    // Failsafe: If queue becomes empty and there\'s a current song, clear it (admin only)
-    // This might be redundant if useQueueAndCurrentSong handles it, but good as a failsafe.
-    useEffect(() => {
-        if (
-            isAdmin &&
-            isInitialized &&
-            queueCombined.length === 0 &&
-            currentSongCombined
-        ) {
-            updateCurrentSong(roomId, null).catch((err) =>
-                console.error("Failsafe current song clear error:", err)
-            );
-            updatePlayerState(roomId, false, isMutedCombined).catch((err) =>
-                console.error("Failsafe player state update error:", err)
-            );
-        }
-    }, [
-        isAdmin,
-        queueCombined,
-        currentSongCombined,
-        roomId,
-        isInitialized,
-        isMutedCombined,
-    ]); // Update dependencies
+    // Handle microphone volume change for a specific user
+    const handleUserMicVolumeChange = (userId: string, value: number[]) => {
+        const newVolume = value[0];
+        setUserMicVolumes((prev) => ({
+            ...prev,
+            [userId]: newVolume,
+        }));
 
-    // Failsafe: If there\'s no current song but player is playing, stop it (admin only)
-    useEffect(() => {
-        if (
-            isAdmin &&
-            isInitialized &&
-            !currentSongCombined &&
-            isPlayingCombined
-        ) {
-            updatePlayerState(roomId, false, isMutedCombined).catch(
-                (
-                    err // Use isMutedCombined
-                ) => console.error("Failsafe player stop error:", err)
-            );
+        // If admin has RTC manager and a connection to this user, adjust their volume
+        if (adminRTCManagerRef.current && connectedUsers[userId]) {
+            adminRTCManagerRef.current.setUserVolume(userId, newVolume / 100);
         }
-    }, [
-        isAdmin,
-        currentSongCombined,
-        isPlayingCombined,
-        roomId,
-        isInitialized,
-        isMutedCombined,
-    ]); // Update dependencies
+    };
 
-    // Handle fullscreen toggle
-    const toggleFullscreen = () => {
-        setIsFullscreen(!isFullscreen);
+    // Toggle volume slider visibility
+    const toggleVolumeSlider = () => {
+        setShowVolumeSlider(!showVolumeSlider);
+    };
+
+    // Toggle controls visibility
+    const toggleControls = () => {
+        setShowControls(!showControls);
     };
 
     // Toggle sidebar visibility
@@ -677,9 +907,22 @@ export default function Room() {
         setShowSidebar(!showSidebar);
     };
 
-    // Toggle player controls visibility
-    const toggleControls = () => {
-        setShowControls(!showControls);
+    // Toggle fullscreen mode
+    const toggleFullscreen = () => {
+        setIsFullscreen(!isFullscreen);
+
+        // Handle fullscreen API if needed
+        if (mainContainerRef.current) {
+            if (!isFullscreen) {
+                if (mainContainerRef.current.requestFullscreen) {
+                    mainContainerRef.current.requestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
     };
 
     // Check if there are persistent Firebase errors across multiple hooks
@@ -763,7 +1006,7 @@ export default function Room() {
             <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex items-center justify-center">
                 <Toaster />
                 <div className="bg-gray-800/50 p-6 rounded-lg shadow-lg text-center glow-box">
-                    <Loader2 className="h-12 w-12 animate-spin text-purple-500 mx-auto mb-4" />
+                    <Loader2 className="h-12 w-12 animate-spin text-purple-500 mb-4" />
                     <h2 className="text-xl font-medium mb-2">
                         Loading Room Data...
                     </h2>
@@ -798,6 +1041,50 @@ export default function Room() {
             </div>
         );
     }
+
+    // Handle player ready
+    const onPlayerReady = (event: any) => {
+        playerRef.current = event.target;
+        // Autoplay if a song is already set and supposed to be playing
+        if (currentSongCombined && isPlayingCombined) {
+            playerRef.current.playVideo();
+        }
+        // Set initial mute state
+        if (isMutedCombined) {
+            playerRef.current.mute();
+        } else {
+            playerRef.current.unMute();
+            // Set initial volume
+            playerRef.current.setVolume(videoVolume);
+        }
+    };
+
+    // Handle player state change
+    const onPlayerStateChange = async (event: any) => {
+        // event.data values:
+        // -1 (unstarted)
+        //  0 (ended)
+        //  1 (playing)
+        //  2 (paused)
+        //  3 (buffering)
+        //  5 (video cued)
+        if (event.data === 0 && isAdmin) {
+            // Song ended
+            await queueActions.handleSongEnded(); // Use new action
+        } else if (event.data === 1) {
+            // Song is playing
+            if (!isPlayingCombined && isAdmin) {
+                // Use isPlayingCombined
+                await updatePlayerState(roomId, true, isMutedCombined); // Use isMutedCombined
+            }
+        } else if (event.data === 2) {
+            // Song is paused
+            if (isPlayingCombined && isAdmin) {
+                // Use isPlayingCombined
+                await updatePlayerState(roomId, false, isMutedCombined); // Use isMutedCombined
+            }
+        }
+    };
 
     return (
         <main
@@ -838,16 +1125,15 @@ export default function Room() {
                                     <QrCode className="h-4 w-4 mr-1" /> Room
                                     Code
                                 </Button>
-                            </DialogTrigger>
+                            </DialogTrigger>{" "}
                             <DialogContent className="bg-gray-900 border-gray-700">
                                 <DialogHeader>
                                     <DialogTitle className="text-center">
-                                        Room ID: {roomId}{" "}
-                                        {/* Changed from Room Code to Room ID for clarity */}
+                                        Share the room
                                     </DialogTitle>
                                 </DialogHeader>
-                                <div className="flex flex-col items-center justify-center p-4">
-                                    <div className="bg-white p-4 rounded-lg mb-4">
+                                <div className="flex flex-col items-center justify-center p-4 space-y-4">
+                                    <div className="bg-white p-4 rounded-lg">
                                         {origin && (
                                             <QRCodeSVG
                                                 value={`${origin}/join?room=${roomId}`}
@@ -856,21 +1142,60 @@ export default function Room() {
                                             />
                                         )}
                                     </div>
-                                    <Button
-                                        onClick={handleCopyRoomCode} // This now copies the full join link
-                                        className="bg-purple-600 hover:bg-purple-500 w-full mb-2"
-                                    >
-                                        <Share2 className="h-4 w-4 mr-2" /> Copy
-                                        Join Link
-                                    </Button>
-                                    <Button
-                                        onClick={handleCopyJustRoomId} // New button to copy just the ID
-                                        variant="outline"
-                                        className="border-purple-500 text-purple-500 hover:bg-purple-500/10 w-full"
-                                    >
-                                        <QrCode className="h-4 w-4 mr-2" /> Copy
-                                        Room ID Only
-                                    </Button>
+
+                                    {/* Code Box */}
+                                    <div className="w-full">
+                                        <label className="text-sm font-medium text-center text-purple-400 block mb-2">
+                                            Code
+                                        </label>
+                                        <div className="bg-gray-800 p-2 rounded-lg border text-center border-purple-500/30 text-white w-full">
+                                            <span className="font-mono tracking-wider text-white text-md">
+                                                {roomId}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Link Box */}
+                                    <div className="w-full">
+                                        <label className="text-sm font-medium text-purple-400 block mb-2 text-center">
+                                            Link
+                                        </label>
+                                        <div className="bg-gray-800 p-2 rounded-lg border border-purple-500/30 text-center text-white w-full">
+                                            <span className="text-sm text-white break-all">
+                                                {origin
+                                                    ? `${origin}/join?room=${roomId}`
+                                                    : "Loading..."}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Microphone Control (Read-only display) */}
+                                    <div className="w-full">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <label className="text-sm font-medium text-purple-400">
+                                                Microphone
+                                            </label>
+                                            <div className="flex items-center">
+                                                <span
+                                                    className={`inline-flex h-3 w-3 rounded-full mr-2 ${
+                                                        roomData?.micFeatureEnabled
+                                                            ? "bg-green-500"
+                                                            : "bg-red-500"
+                                                    }`}
+                                                ></span>
+                                                <span className="text-xs">
+                                                    {roomData?.micFeatureEnabled
+                                                        ? "Enabled"
+                                                        : "Disabled"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs text-center text-gray-400 mt-1 p-2 bg-gray-800 rounded border border-gray-700">
+                                            {roomData?.micFeatureEnabled
+                                                ? "Users can use their phones as microphones in this session"
+                                                : "Phone microphone functionality is currently disabled"}
+                                        </div>
+                                    </div>
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -980,8 +1305,7 @@ export default function Room() {
                                         </div>
                                     )}
                                 </div>
-                            )}
-
+                            )}{" "}
                             {/* Player Controls - Visible only to admin and if showControls is true */}
                             {isAdmin && showControls && (
                                 <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center space-x-3 bg-black/50 p-2 rounded-full z-20 border border-white/20">
@@ -1009,24 +1333,41 @@ export default function Room() {
                                     >
                                         <SkipForward className="h-5 w-5" />
                                     </Button>
-                                    <Button
-                                        onClick={handleMute}
-                                        variant="ghost"
-                                        size="icon"
-                                        className="text-white hover:bg-white/20 rounded-full"
-                                        aria-label={
-                                            isMutedCombined ? "Unmute" : "Mute"
-                                        }
-                                    >
-                                        {isMutedCombined ? (
-                                            <VolumeX className="h-5 w-5" />
-                                        ) : (
-                                            <Volume2 className="h-5 w-5" />
+                                    <div className="flex items-center gap-2 ml-1">
+                                        <Button
+                                            onClick={toggleVolumeSlider}
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-white hover:bg-white/20 rounded-full"
+                                            aria-label="Volume"
+                                        >
+                                            {isMutedCombined ? (
+                                                <VolumeX className="h-5 w-5" />
+                                            ) : videoVolume > 50 ? (
+                                                <Volume2 className="h-5 w-5" />
+                                            ) : videoVolume > 0 ? (
+                                                <Volume1 className="h-5 w-5" />
+                                            ) : (
+                                                <Volume className="h-5 w-5" />
+                                            )}
+                                        </Button>
+                                        {showVolumeSlider && (
+                                            <div className="ml-2 w-24 bg-black/70 rounded-full px-2 py-1">
+                                                <Slider
+                                                    value={[videoVolume]}
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    onValueChange={
+                                                        handleVideoVolumeChange
+                                                    }
+                                                    className="w-full"
+                                                />
+                                            </div>
                                         )}
-                                    </Button>
+                                    </div>
                                 </div>
                             )}
-
                             {/* Fullscreen, Sidebar, and Controls Toggle Buttons */}
                             <div className="absolute top-4 right-4 flex gap-2 z-10">
                                 {isAdmin && (
@@ -1091,10 +1432,15 @@ export default function Room() {
                             onValueChange={setActiveTab}
                             className="flex-1 flex flex-col h-full"
                         >
+                            {" "}
                             <TabsList
                                 className={cn(
                                     "grid mb-4",
-                                    isAdmin ? "grid-cols-3" : "grid-cols-2"
+                                    isAdmin
+                                        ? "grid-cols-3"
+                                        : roomData?.micFeatureEnabled
+                                        ? "grid-cols-3"
+                                        : "grid-cols-2"
                                 )}
                             >
                                 <TabsTrigger value="search">Search</TabsTrigger>
@@ -1103,6 +1449,9 @@ export default function Room() {
                                     <TabsTrigger value="users">
                                         Users
                                     </TabsTrigger>
+                                )}
+                                {!isAdmin && roomData?.micFeatureEnabled && (
+                                    <TabsTrigger value="mic">Mic</TabsTrigger>
                                 )}
                             </TabsList>
                             <div>
@@ -1261,7 +1610,6 @@ export default function Room() {
                                         </div>
                                     </ScrollArea>
                                 </TabsContent>
-
                                 {/* Queue Tab */}
                                 <TabsContent
                                     value="queue"
@@ -1379,7 +1727,6 @@ export default function Room() {
                                         )}
                                     </ScrollArea>
                                 </TabsContent>
-
                                 {/* Users Tab */}
                                 {isAdmin && (
                                     <TabsContent
@@ -1400,13 +1747,15 @@ export default function Room() {
                                         >
                                             {users.length > 0 ? (
                                                 <div className="space-y-3 p-3">
+                                                    {" "}
                                                     {users.map((user) => (
                                                         <div
                                                             key={user.id}
                                                             className="mb-2 flex items-center justify-between rounded-lg bg-gray-800 p-3"
                                                         >
-                                                            <span className="text-sm text-white">
-                                                                {user.name}
+                                                            {" "}
+                                                            <span className="text-sm text-white flex items-center">
+                                                                {user.name}{" "}
                                                                 {user.isAdmin && (
                                                                     <span className="ml-2 text-xs text-yellow-400">
                                                                         (Admin)
@@ -1418,7 +1767,63 @@ export default function Room() {
                                                                         (You)
                                                                     </span>
                                                                 )}
+                                                                {user.isMicOn &&
+                                                                    !user.isAdmin && (
+                                                                        <span
+                                                                            className={cn(
+                                                                                "ml-2 text-xs flex items-center",
+                                                                                user.isMutedByAdmin
+                                                                                    ? "text-red-400"
+                                                                                    : "text-green-400"
+                                                                            )}
+                                                                        >
+                                                                            <span className="mr-1">
+                                                                                {user.isMutedByAdmin ? (
+                                                                                    <MicOff className="h-3 w-3 inline" />
+                                                                                ) : (
+                                                                                    <Mic className="h-3 w-3 inline" />
+                                                                                )}
+                                                                            </span>
+                                                                            {user.isMutedByAdmin
+                                                                                ? "(Muted)"
+                                                                                : "(Mic On)"}
+                                                                        </span>
+                                                                    )}{" "}
                                                             </span>
+                                                            {isAdmin &&
+                                                                user.isMicOn &&
+                                                                !user.isMutedByAdmin && (
+                                                                    <div className="flex items-center ml-2">
+                                                                        <Volume2 className="h-3 w-3 text-gray-400 mr-2" />
+                                                                        <Slider
+                                                                            value={[
+                                                                                userMicVolumes[
+                                                                                    user
+                                                                                        .id
+                                                                                ] ||
+                                                                                    80,
+                                                                            ]}
+                                                                            min={
+                                                                                0
+                                                                            }
+                                                                            max={
+                                                                                100
+                                                                            }
+                                                                            step={
+                                                                                1
+                                                                            }
+                                                                            onValueChange={(
+                                                                                value
+                                                                            ) =>
+                                                                                handleUserMicVolumeChange(
+                                                                                    user.id,
+                                                                                    value
+                                                                                )
+                                                                            }
+                                                                            className="w-24"
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1433,8 +1838,111 @@ export default function Room() {
                                                         </p>
                                                     </div>
                                                 </div>
-                                            )}
+                                            )}{" "}
                                         </ScrollArea>
+                                    </TabsContent>
+                                )}{" "}
+                                {/* Microphone Tab for non-admin users */}
+                                {!isAdmin && roomData?.micFeatureEnabled && (
+                                    <TabsContent
+                                        value="mic"
+                                        className="flex-1 flex flex-col overflow-hidden"
+                                    >
+                                        <div className="flex items-center justify-center h-full">
+                                            <div className="text-center space-y-8 max-w-md flex flex-col items-center justify-center">
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xl font-semibold text-white">
+                                                        Phone Microphone
+                                                    </h3>
+                                                    <p className="text-gray-400">
+                                                        {isMutedByAdmin
+                                                            ? "You have been muted by the host"
+                                                            : isMicOn
+                                                            ? "Your microphone is active"
+                                                            : "Tap the button to use your phone as a microphone"}
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    onClick={handleMicToggle}
+                                                    disabled={
+                                                        isMutedByAdmin ||
+                                                        micPermissionStatus ===
+                                                            "denied" ||
+                                                        micPermissionStatus ===
+                                                            "unsupported"
+                                                    }
+                                                    className={cn(
+                                                        "h-40 w-40 rounded-full flex flex-col items-center justify-center gap-3 transition-all duration-300 mx-auto",
+                                                        isMicOn
+                                                            ? "bg-green-600 hover:bg-green-700 animate-pulse-slow"
+                                                            : isMutedByAdmin
+                                                            ? "bg-red-600 cursor-not-allowed opacity-70"
+                                                            : "bg-purple-600 hover:bg-purple-700"
+                                                    )}
+                                                >
+                                                    {" "}
+                                                    {isMicOn ? (
+                                                        <Mic className="h-16 w-16" />
+                                                    ) : isMutedByAdmin ? (
+                                                        <div className="relative">
+                                                            <Mic className="h-16 w-16 opacity-50" />
+                                                            <div className="absolute top-1/2 left-0 w-full h-1 bg-white rotate-45 transform -translate-y-1/2"></div>
+                                                        </div>
+                                                    ) : (
+                                                        <Mic className="h-16 w-16" />
+                                                    )}
+                                                    <span className="text-sm font-medium">
+                                                        {isMicOn
+                                                            ? "Tap to turn off"
+                                                            : isMutedByAdmin
+                                                            ? "Muted by host"
+                                                            : "Tap to turn on"}
+                                                    </span>
+                                                </Button>{" "}
+                                                {isMutedByAdmin && (
+                                                    <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-white max-w-xs mx-auto mt-4">
+                                                        <p>
+                                                            You have been muted
+                                                            by the host
+                                                        </p>
+                                                        <p className="text-xs mt-1">
+                                                            You cannot use your
+                                                            microphone until the
+                                                            host unmutes you
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {micPermissionStatus ===
+                                                    "denied" && (
+                                                    <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-white max-w-xs mx-auto mt-4">
+                                                        <p>
+                                                            Microphone access is
+                                                            blocked
+                                                        </p>
+                                                        <p className="text-xs mt-1">
+                                                            Please enable
+                                                            microphone access in
+                                                            your browser
+                                                            settings
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {micPermissionStatus ===
+                                                    "unsupported" && (
+                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-sm text-white max-w-xs mx-auto mt-4">
+                                                        <p>
+                                                            Your browser doesn't
+                                                            support this feature
+                                                        </p>
+                                                        <p className="text-xs mt-1">
+                                                            Try using a modern
+                                                            browser like Chrome
+                                                            or Firefox
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     </TabsContent>
                                 )}
                             </div>

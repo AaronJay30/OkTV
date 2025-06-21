@@ -6,7 +6,7 @@
 
 ## ✨ Features (Version 1.0)
 
-OKtv is packed with features to make your online karaoke sessions seamless and fun:
+OKtv is packed with features to make your online karaoke sessions seamless and fun (see below for new features in Version 2.0!):
 
 ### 🏠 Room Management
 
@@ -88,6 +88,33 @@ pnpm docker:start
 # Start the Docker container in detached mode
 pnpm docker:start:detached
 ```
+
+## 🚀 New in Version 2.0
+
+### 🎙️ Phone as Microphone Feature
+
+OKtv now includes a powerful microphone integration that turns any device into a personal microphone:
+
+-   **Room Creator Controls:** Enable or disable the microphone feature when creating a room
+-   **WebRTC Integration:** Real-time, low-latency audio streaming between participants and admin
+-   **Admin Controls:**
+    -   See which users have their microphone on with visual indicators (green for active, red for muted)
+    -   Mute any participant's microphone (user cannot re-enable until unmuted by admin)
+    -   Adjust individual microphone volumes with intuitive sliders
+-   **User Experience:**
+    -   Simple, large microphone button in the dedicated Mic tab
+    -   Clear status indicators showing when muted by admin
+    -   Permission handling for browser microphone access
+-   **Video Player Improvements:**
+    -   Volume slider for video playback (replaces basic mute button)
+    -   More responsive controls with visual feedback
+
+### 💡 Technical Features
+
+-   **WebRTC Signaling:** Firebase Realtime Database for WebRTC connection setup
+-   **Audio Processing:** Real-time audio stream management with volume control
+-   **Permissions Management:** Graceful handling of browser microphone permissions
+-   **State Synchronization:** Real-time mic status updates across all users
 
 ## 🚀 Getting Started
 

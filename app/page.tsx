@@ -6,25 +6,61 @@ import { Input } from "@/components/ui/input";
 import { Music, Mic, Users, Play, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { checkRoomExists } from "@/lib/firebase-service";
+import { checkRoomExists, createRoom } from "@/lib/firebase-service";
 import { toast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export default function Home() {
     const router = useRouter();
     const [joinRoomCode, setJoinRoomCode] = useState("");
     const [showJoinInput, setShowJoinInput] = useState(false);
     const [isJoining, setIsJoining] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+    const [showCreateDialog, setShowCreateDialog] = useState(false);
+    const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
 
-    const handleCreateRoom = () => {
-        // Generate a random room code
-        const roomCode = Math.random()
-            .toString(36)
-            .substring(2, 8)
-            .toUpperCase();
-        router.push(`/room/${roomCode}?admin=true`);
+    const handleCreateRoomClick = () => {
+        setShowCreateDialog(true);
     };
 
+    const handleCreateRoom = async () => {
+        try {
+            setIsCreating(true);
+            // Generate a random room code
+            const roomCode = Math.random()
+                .toString(36)
+                .substring(2, 8)
+                .toUpperCase();
+
+            // Create the room in Firebase with the mic feature setting
+            await createRoom(
+                roomCode,
+                { id: "admin", name: "Admin", isAdmin: true },
+                micFeatureEnabled
+            );
+
+            router.push(`/room/${roomCode}?admin=true`);
+        } catch (error) {
+            console.error("Error creating room:", error);
+            toast({
+                title: "Error",
+                description: "Could not create the room. Please try again.",
+                variant: "destructive",
+            });
+            setIsCreating(false);
+            setShowCreateDialog(false);
+        }
+    };
     const handleJoinRoom = async () => {
         if (joinRoomCode.trim()) {
             try {
@@ -85,7 +121,7 @@ export default function Home() {
                         className="relative"
                     >
                         <Button
-                            onClick={handleCreateRoom}
+                            onClick={handleCreateRoomClick}
                             className="w-full h-16 text-lg bg-gradient-to-r from-purple-700 to-purple-500 hover:from-purple-600 hover:to-purple-400 glow-border"
                         >
                             <Mic className="mr-2 h-5 w-5" /> Create Room
@@ -101,7 +137,6 @@ export default function Home() {
                             <Play className="h-4 w-4" />
                         </motion.div>
                     </motion.div>
-
                     {!showJoinInput ? (
                         <motion.div
                             whileHover={{ scale: 1.03 }}
@@ -162,7 +197,7 @@ export default function Home() {
                                 Cancel
                             </Button>
                         </motion.div>
-                    )}
+                    )}{" "}
                 </div>
             </motion.div>
 
@@ -202,6 +237,68 @@ export default function Home() {
                     </a>
                 </p>
             </footer>
+
+            {/* Create Room Dialog */}
+            <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+                <DialogContent className="bg-gray-900 border-purple-500 text-white">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl text-center text-purple-500">
+                            Create New Room
+                        </DialogTitle>
+                        <DialogDescription className="text-gray-400 text-center">
+                            Configure your karaoke room settings before
+                            creating.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label
+                                    htmlFor="micFeature"
+                                    className="text-white"
+                                >
+                                    Phone as Microphone
+                                </Label>
+                                <p className="text-sm text-gray-400">
+                                    Allow users to use their phones as
+                                    microphones
+                                </p>
+                            </div>
+                            <Switch
+                                id="micFeature"
+                                checked={micFeatureEnabled}
+                                onCheckedChange={setMicFeatureEnabled}
+                                className="data-[state=checked]:bg-purple-500"
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowCreateDialog(false)}
+                            className="border-gray-600 text-gray-300 hover:bg-gray-800"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleCreateRoom}
+                            className="bg-purple-600 hover:bg-purple-500"
+                            disabled={isCreating}
+                        >
+                            {isCreating ? (
+                                <>
+                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                    Creating...
+                                </>
+                            ) : (
+                                "Create Room"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </main>
     );
 }
