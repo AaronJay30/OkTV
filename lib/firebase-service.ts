@@ -30,19 +30,19 @@ export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
     const now = new Date();
     const cutoffDate = new Date(now.getTime() - daysOld * 24 * 60 * 60 * 1000);
     let deletedCount = 0;
-    
+
     for (const roomId in rooms) {
         if (rooms.hasOwnProperty(roomId)) {
             const room = rooms[roomId];
-            
+
             if (!room.createdAt) {
                 continue;
             }
-            
+
             // Parse the ISO string to a Date object for proper comparison
             const roomCreatedAt = new Date(room.createdAt);
             const isOld = roomCreatedAt < cutoffDate;
-            
+
             // Check if room is older than specified days
             if (isOld) {
                 // Room is older than specified days, delete it
@@ -51,13 +51,15 @@ export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
                 deletedCount++;
             }
         }
-    }return deletedCount;
+    }
+    return deletedCount;
 };
 
 // Room management
 export const createRoom = async (
     roomId: string,
-    adminUser: User
+    adminUser: User,
+    micFeatureEnabled: boolean = false
 ): Promise<void> => {
     // Clean up old rooms before creating a new one
     try {
@@ -78,6 +80,7 @@ export const createRoom = async (
         currentSong: null,
         isPlaying: false,
         isMuted: false,
+        micFeatureEnabled: micFeatureEnabled,
     });
 
     // Add admin user directly with their specified ID
@@ -309,8 +312,9 @@ export const subscribeToPlayerState = (
 };
 
 // For manual testing of room cleanup
-export const testCleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
-    
+export const testCleanupOldRooms = async (
+    daysOld: number = 1
+): Promise<number> => {
     const roomsRef = ref(rtdb, "rooms");
     const snapshot = await get(roomsRef);
 
@@ -322,26 +326,28 @@ export const testCleanupOldRooms = async (daysOld: number = 1): Promise<number> 
     const now = new Date();
     const cutoffDate = new Date(now.getTime() - daysOld * 24 * 60 * 60 * 1000);
     let deletedCount = 0;
-    
+
     for (const roomId in rooms) {
         if (rooms.hasOwnProperty(roomId)) {
             const room = rooms[roomId];
-            
+
             if (!room.createdAt) {
                 continue;
             }
-            
+
             // Parse the ISO string to a Date object for proper comparison
             const roomCreatedAt = new Date(room.createdAt);
             const isOld = roomCreatedAt < cutoffDate;
         }
     }
-    
+
     return Object.keys(rooms).length;
 };
 
 // For manual deletion after testing
-export const confirmCleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
+export const confirmCleanupOldRooms = async (
+    daysOld: number = 1
+): Promise<number> => {
     const roomsRef = ref(rtdb, "rooms");
     const snapshot = await get(roomsRef);
 
@@ -353,19 +359,19 @@ export const confirmCleanupOldRooms = async (daysOld: number = 1): Promise<numbe
     const now = new Date();
     const cutoffDate = new Date(now.getTime() - daysOld * 24 * 60 * 60 * 1000);
     let deletedCount = 0;
-    
+
     for (const roomId in rooms) {
         if (rooms.hasOwnProperty(roomId)) {
             const room = rooms[roomId];
-            
+
             if (!room.createdAt) {
                 continue;
             }
-            
+
             // Parse the ISO string to a Date object for proper comparison
             const roomCreatedAt = new Date(room.createdAt);
             const isOld = roomCreatedAt < cutoffDate;
-            
+
             // Check if room is older than specified days
             if (isOld) {
                 // Room is older than specified days, delete it
@@ -375,6 +381,6 @@ export const confirmCleanupOldRooms = async (daysOld: number = 1): Promise<numbe
             }
         }
     }
-    
+
     return deletedCount;
 };
