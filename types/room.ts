@@ -13,6 +13,8 @@ export interface User {
     name: string;
     isAdmin: boolean;
     joinedAt?: string;
+    isMicOn?: boolean;
+    isMutedByAdmin?: boolean;
 }
 
 export interface Room {
@@ -20,6 +22,7 @@ export interface Room {
     currentSong: Song | null;
     isPlaying: boolean;
     isMuted: boolean;
+    micFeatureEnabled?: boolean;
     queue?: Record<string, Song>;
     users?: Record<string, User>;
 }
