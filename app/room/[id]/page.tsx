@@ -34,6 +34,8 @@ import {
     MicOff,
     Volume1,
     Volume,
+    Award, // Added for scoring feature
+    Trophy, // Added for scoring feature
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
@@ -52,6 +54,9 @@ import { searchYouTube } from "@/lib/youtube";
 import type { ComponentType } from "react";
 import useMicrophone from "@/hooks/useMicrophone";
 import { Slider } from "@/components/ui/slider";
+import { ScoreDisplayModal } from "@/components/score-display"; // Import the ScoreDisplayModal
+import { HighScores } from "@/components/high-scores"; // Import the HighScores component
+import { generatePerformanceScore } from "@/lib/scoring-service"; // Import the scoring service
 import {
     createRoom,
     checkRoomExists,
@@ -162,6 +167,11 @@ export default function Room() {
     const [origin, setOrigin] = useState("");
     const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
+
+    // Scoring feature states
+    const [showScoreModal, setShowScoreModal] = useState(false);
+    const [currentScore, setCurrentScore] = useState(0);
+    const [showHighScores, setShowHighScores] = useState(false);
 
     // Microphone feature states
     const [isMutedByAdmin, setIsMutedByAdmin] = useState(false);
@@ -310,6 +320,7 @@ export default function Room() {
             });
         }
     }, [micError]); // Handle microphone toggle
+
     const handleMicToggle = async () => {
         // Don't allow toggling if the admin has muted the user
         if (isMutedByAdmin) {
@@ -808,50 +819,27 @@ export default function Room() {
 
     // Handle skip
     const handleSkip = async () => {
-        try {
-            if (isAdmin) {
-                // Admin check is now inside the hook, but good to keep here too for UI disabling
-                await queueActions.handleSkipSong(); // Use new action
-            } else if (queueCombined.length === 0) {
-                // Non-admin case, if queue is empty, ensure player stops
-                await updatePlayerState(roomId, false, isMutedCombined);
-                await updateCurrentSong(roomId, null);
-            }
-        } catch (error) {
-            console.error("Error skipping song:", error);
-            toast({
-                title: "Error",
-                description: "Failed to skip to next song",
-                variant: "destructive",
-            });
+        if (isAdmin && currentSongCombined) {
+            await queueActions.handleSongEnded(); // Use new action
         }
     };
 
-    // Handle mute/unmute
-    const handleMute = async () => {
-        if (playerRef.current && isAdmin) {
-            try {
-                if (isMutedCombined) {
-                    playerRef.current.unMute();
-                    // Restore last volume when unmuting
-                    if (videoVolume > 0) {
-                        playerRef.current.setVolume(videoVolume);
-                    } else {
-                        playerRef.current.setVolume(50);
-                        setVideoVolume(50);
-                    }
-                } else {
-                    playerRef.current.mute();
-                }
+    // Handle scoring performance
+    const handleShowScore = () => {
+        if (roomData?.scorerEnabled && currentSongCombined) {
+            // Generate a score and show the modal
+            setShowScoreModal(true);
+        }
+    };
 
-                await updatePlayerState(
-                    roomId,
-                    isPlayingCombined,
-                    !isMutedCombined
-                );
-            } catch (error) {
-                console.error("Error controlling mute state:", error);
-            }
+    // Handle closing the score modal
+    const handleCloseScoreModal = async () => {
+        setShowScoreModal(false);
+
+        // If song has ended (player state is 0), proceed with ending the song after modal is closed
+        const playerState = playerRef.current?.getPlayerState?.();
+        if (playerState === 0 && isAdmin) {
+            await queueActions.handleSongEnded();
         }
     };
 
@@ -1070,7 +1058,14 @@ export default function Room() {
         //  5 (video cued)
         if (event.data === 0 && isAdmin) {
             // Song ended
-            await queueActions.handleSongEnded(); // Use new action
+            if (roomData?.scorerEnabled && currentSongCombined) {
+                // Automatically show score when song ends if scoring is enabled
+                handleShowScore();
+                // handleSongEnded will be called after the score modal is closed
+            } else {
+                // If scoring isn't enabled, proceed with ending the song
+                await queueActions.handleSongEnded();
+            }
         } else if (event.data === 1) {
             // Song is playing
             if (!isPlayingCombined && isAdmin) {
@@ -1092,6 +1087,17 @@ export default function Room() {
             ref={mainContainerRef}
         >
             <Toaster />
+
+            {/* Score Display Modal */}
+            <ScoreDisplayModal
+                open={showScoreModal}
+                onClose={handleCloseScoreModal}
+                roomId={roomId}
+                currentUser={
+                    users.find((user) => user.id === firebaseUserId) || null
+                }
+                currentSong={currentSongCombined}
+            />
 
             {/* Header - Hidden in fullscreen mode */}
             {!isFullscreen && (
@@ -1366,6 +1372,8 @@ export default function Room() {
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Score button removed - now triggered automatically when song ends */}
                                 </div>
                             )}
                             {/* Fullscreen, Sidebar, and Controls Toggle Buttons */}
@@ -1437,10 +1445,16 @@ export default function Room() {
                                 className={cn(
                                     "grid mb-4",
                                     isAdmin
-                                        ? "grid-cols-3"
+                                        ? roomData?.scorerEnabled
+                                            ? "grid-cols-4" // 4 columns when admin with scoring enabled
+                                            : "grid-cols-3" // 3 columns when admin without scoring
                                         : roomData?.micFeatureEnabled
-                                        ? "grid-cols-3"
-                                        : "grid-cols-2"
+                                        ? roomData?.scorerEnabled
+                                            ? "grid-cols-4" // 4 columns when non-admin with mic and scoring
+                                            : "grid-cols-3" // 3 columns when non-admin with mic only
+                                        : roomData?.scorerEnabled
+                                        ? "grid-cols-3" // 3 columns when non-admin with scoring only
+                                        : "grid-cols-2" // 2 columns when non-admin without mic or scoring
                                 )}
                             >
                                 <TabsTrigger value="search">Search</TabsTrigger>
@@ -1448,6 +1462,11 @@ export default function Room() {
                                 {isAdmin && (
                                     <TabsTrigger value="users">
                                         Users
+                                    </TabsTrigger>
+                                )}
+                                {roomData?.scorerEnabled && (
+                                    <TabsTrigger value="scores">
+                                        Scores
                                     </TabsTrigger>
                                 )}
                                 {!isAdmin && roomData?.micFeatureEnabled && (
@@ -1943,6 +1962,36 @@ export default function Room() {
                                                 )}
                                             </div>
                                         </div>
+                                    </TabsContent>
+                                )}
+                                {/* Scores Tab */}
+                                {roomData?.scorerEnabled && (
+                                    <TabsContent
+                                        value="scores"
+                                        className="flex-1 flex flex-col overflow-hidden"
+                                    >
+                                        <div className="flex flex-col mb-4">
+                                            <div className="flex items-center mb-2">
+                                                <Trophy className="h-5 w-5 text-yellow-400 mr-2" />
+                                                <h3 className="text-lg font-medium">
+                                                    Karaoke Champions
+                                                    <span className="ml-2 text-xs text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full">
+                                                        BETA
+                                                    </span>
+                                                </h3>
+                                            </div>
+                                            <p className="text-xs text-gray-400">
+                                                Top performances ranked by score
+                                            </p>
+                                        </div>
+                                        <ScrollArea
+                                            orientation="vertical"
+                                            className="flex-1 bg-gray-800/30 rounded-lg p-1"
+                                        >
+                                            <div className="px-1">
+                                                <HighScores roomId={roomId} />
+                                            </div>
+                                        </ScrollArea>
                                     </TabsContent>
                                 )}
                             </div>

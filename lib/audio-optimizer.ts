@@ -25,11 +25,11 @@ export function createLowLatencyAudioStream(
     originalStream: MediaStream,
     options: AudioProcessingOptions = {}
 ): MediaStream {
-    // Create audio context with low latency settings
+    // Create audio context with balanced latency and quality settings
     const audioContext = new (window.AudioContext ||
         (window as any).webkitAudioContext)({
-        latencyHint: "interactive", // Prioritize low latency
-        sampleRate: 48000, // Higher sample rate can improve quality
+        latencyHint: "balanced", // Balance between latency and stability
+        sampleRate: 44100, // Standard sample rate with good quality/performance balance
     });
 
     // Get audio track from original stream
@@ -43,7 +43,7 @@ export function createLowLatencyAudioStream(
     const streamSource = audioContext.createMediaStreamSource(originalStream);
 
     // Use default buffer size or specified one
-    const bufferSize = options.bufferSize || 256; // Smaller buffer = lower latency but may have dropouts
+    const bufferSize = options.bufferSize || 1024; // Larger buffer for better stability
 
     // Create script processor for custom audio processing
     // Note: ScriptProcessorNode is deprecated but still works in all browsers,
@@ -54,7 +54,7 @@ export function createLowLatencyAudioStream(
         1 // Number of output channels
     );
 
-    // Simple pass-through processing with minimal overhead
+    // Audio processing with simple noise gate to reduce static
     scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const outputBuffer = audioProcessingEvent.outputBuffer;
@@ -63,9 +63,16 @@ export function createLowLatencyAudioStream(
         const inputData = inputBuffer.getChannelData(0);
         const outputData = outputBuffer.getChannelData(0);
 
-        // Simple direct copy from input to output (no processing for minimal latency)
+        // Simple noise gate to reduce static
+        const noiseFloor = 0.01; // Threshold below which we consider it noise
+
         for (let i = 0; i < inputBuffer.length; i++) {
-            outputData[i] = inputData[i];
+            // Apply a simple noise gate - if signal is below threshold, reduce it
+            if (Math.abs(inputData[i]) < noiseFloor) {
+                outputData[i] = 0; // Silence noise below threshold
+            } else {
+                outputData[i] = inputData[i]; // Keep signal above threshold
+            }
         }
     };
 
@@ -104,12 +111,12 @@ export function optimizePeerConnectionForAudio(
     peerConnection.setLocalDescription = async function (
         description: RTCSessionDescriptionInit
     ) {
-        // Modify SDP to prioritize audio quality and low latency
+        // Modify SDP to prioritize audio quality and stability
         if (description && description.sdp) {
-            // Set Opus parameters for low latency
+            // Set Opus parameters for better audio quality
             description.sdp = description.sdp.replace(
                 /a=fmtp:111 /g,
-                "a=fmtp:111 minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=1;maxaveragebitrate=128000;maxplaybackrate=48000;ptime=20;maxptime=20;"
+                "a=fmtp:111 minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=1;maxaveragebitrate=64000;maxplaybackrate=48000;ptime=20;maxptime=40;"
             );
         }
         return originalSetLocalDescription(description);
@@ -121,12 +128,12 @@ export function optimizePeerConnectionForAudio(
     peerConnection.setRemoteDescription = async function (
         description: RTCSessionDescriptionInit
     ) {
-        // Modify SDP to prioritize audio quality and low latency
+        // Modify SDP to prioritize audio quality and stability
         if (description && description.sdp) {
-            // Set Opus parameters for low latency
+            // Set Opus parameters for better audio quality
             description.sdp = description.sdp.replace(
                 /a=fmtp:111 /g,
-                "a=fmtp:111 minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=1;maxaveragebitrate=128000;maxplaybackrate=48000;ptime=20;maxptime=20;"
+                "a=fmtp:111 minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=1;maxaveragebitrate=64000;maxplaybackrate=48000;ptime=20;maxptime=40;"
             );
         }
         return originalSetRemoteDescription(description);

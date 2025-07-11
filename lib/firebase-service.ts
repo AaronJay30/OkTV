@@ -15,7 +15,7 @@ import {
     endAt,
 } from "firebase/database";
 import { rtdb } from "./firebase";
-import type { Song, User } from "@/types/room";
+import type { Song, User, Score } from "@/types/room";
 
 // Function to check for and delete old rooms (more than 1 day old)
 export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
@@ -310,6 +310,114 @@ export const subscribeToPlayerState = (
 
     // Return unsubscribe function
     return () => off(roomRef);
+};
+
+// Score management functions
+export const saveScore = async (
+    roomId: string,
+    userId: string,
+    userName: string,
+    songTitle: string,
+    score: number
+): Promise<string> => {
+    const scoresRef = ref(rtdb, `rooms/${roomId}/scores`);
+    const newScoreRef = push(scoresRef);
+
+    const scoreData = {
+        userId,
+        userName,
+        songTitle,
+        score,
+        timestamp: new Date().toISOString(),
+    };
+
+    await set(newScoreRef, scoreData);
+    return newScoreRef.key as string;
+};
+
+export const getRoomHighScores = async (
+    roomId: string,
+    limit: number = 10
+): Promise<Score[]> => {
+    const scoresRef = ref(rtdb, `rooms/${roomId}/scores`);
+    const snapshot = await get(scoresRef);
+
+    if (!snapshot.exists()) {
+        return [];
+    }
+
+    const scoresData = snapshot.val();
+    const scores: Score[] = Object.entries(scoresData).map(([id, data]) => ({
+        id,
+        ...(data as any),
+    }));
+
+    // Sort by score (highest first)
+    scores.sort((a, b) => b.score - a.score);
+
+    // Return top scores based on limit
+    return scores.slice(0, limit);
+};
+
+export const getUserHighScores = async (
+    roomId: string,
+    userId: string,
+    limit: number = 5
+): Promise<Score[]> => {
+    const scoresRef = ref(rtdb, `rooms/${roomId}/scores`);
+    const snapshot = await get(scoresRef);
+
+    if (!snapshot.exists()) {
+        return [];
+    }
+
+    const scoresData = snapshot.val();
+    const scores: Score[] = Object.entries(scoresData)
+        .map(([id, data]) => ({
+            id,
+            ...(data as any),
+        }))
+        .filter((score) => score.userId === userId);
+
+    // Sort by score (highest first)
+    scores.sort((a, b) => b.score - a.score);
+
+    // Return top scores based on limit
+    return scores.slice(0, limit);
+};
+
+export const subscribeToRoomHighScores = (
+    roomId: string,
+    callback: (scores: Score[]) => void,
+    limit: number = 10
+): (() => void) => {
+    const scoresRef = ref(rtdb, `rooms/${roomId}/scores`);
+
+    const onScoresUpdate = (snapshot: any) => {
+        if (!snapshot.exists()) {
+            callback([]);
+            return;
+        }
+
+        const scoresData = snapshot.val();
+        const scores: Score[] = Object.entries(scoresData).map(
+            ([id, data]) => ({
+                id,
+                ...(data as any),
+            })
+        );
+
+        // Sort by score (highest first)
+        scores.sort((a, b) => b.score - a.score);
+
+        // Return top scores based on limit
+        callback(scores.slice(0, limit));
+    };
+
+    onValue(scoresRef, onScoresUpdate);
+
+    // Return unsubscribe function
+    return () => off(scoresRef, "value", onScoresUpdate);
 };
 
 // For manual testing of room cleanup

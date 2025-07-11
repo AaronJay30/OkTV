@@ -17,12 +17,22 @@ export interface User {
     isMutedByAdmin?: boolean;
 }
 
+export interface Score {
+    id?: string;
+    userId: string;
+    userName: string;
+    songTitle: string;
+    score: number;
+    timestamp: string;
+}
+
 export interface Room {
     createdAt: string;
     currentSong: Song | null;
     isPlaying: boolean;
     isMuted: boolean;
     micFeatureEnabled?: boolean;
+    scorerEnabled?: boolean;
     queue?: Record<string, Song>;
     users?: Record<string, User>;
 }
