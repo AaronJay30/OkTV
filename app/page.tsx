@@ -292,6 +292,7 @@ export default function Home() {
                             <Switch
                                 id="micFeature"
                                 checked={micFeatureEnabled}
+                                disabled={true}
                                 onCheckedChange={setMicFeatureEnabled}
                                 className="data-[state=checked]:bg-purple-500"
                             />
