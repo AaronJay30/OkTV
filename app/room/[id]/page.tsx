@@ -36,6 +36,7 @@ import {
     Volume,
     Award, // Added for scoring feature
     Trophy, // Added for scoring feature
+    Link2, // Spec 2: paste-link entry point
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
@@ -50,7 +51,15 @@ import { toast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
-import { searchYouTube } from "@/lib/youtube";
+import {
+    searchYouTubeViaApi,
+    extractYouTubeVideoId,
+    buildYouTubeThumbnail,
+    enrichYouTubeIds,
+    genericBypassTitle,
+    YouTubeQuotaExceededError,
+    type BypassPreview,
+} from "@/lib/youtube";
 import type { ComponentType } from "react";
 import useMicrophone from "@/hooks/useMicrophone";
 import { Slider } from "@/components/ui/slider";
@@ -142,6 +151,69 @@ type RoomValidationStatus =
     | "valid"
     | "invalid_redirecting";
 
+// Spec 2: shared preview card used by both the search-bar and dialog paths.
+// Renders thumbnail + title + channel/duration + Add-to-Queue button.
+// Title and channel start as the generic placeholder and are swapped in
+// when the best-effort enrichment resolves.
+function BypassPreviewCard({
+    preview,
+    onAdd,
+}: {
+    preview: BypassPreview;
+    onAdd: () => void;
+}) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            data-testid="bypass-preview-card"
+            className="flex items-start bg-gray-700/70 rounded-lg p-3 border border-purple-400/40 w-full"
+        >
+            <div className="flex-shrink-0 mr-3">
+                <img
+                    src={preview.thumbnail}
+                    alt={preview.title}
+                    className="w-20 h-14 object-cover rounded shadow-md"
+                />
+            </div>
+            <div className="flex flex-col flex-grow min-w-0">
+                <div className="flex justify-between items-start w-full gap-2">
+                    <div className="flex flex-col min-w-0">
+                        <p
+                            className="text-xs font-medium break-words text-white"
+                            style={{ wordBreak: "break-word" }}
+                        >
+                            {preview.title}
+                        </p>
+                        <p className="text-[11px] text-gray-300 mt-0.5">
+                            {preview.channel || "YouTube"}{" "}
+                            {preview.duration ? `· ${preview.duration}` : ""}
+                        </p>
+                        {preview.isEnriching && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                                Loading details…
+                            </p>
+                        )}
+                        {preview.enrichmentFailed && !preview.isEnriching && (
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                                Details unavailable — video will still play.
+                            </p>
+                        )}
+                    </div>
+                    <Button
+                        size="sm"
+                        onClick={onAdd}
+                        className="bg-purple-600 hover:bg-purple-500 shrink-0 h-7 px-2 rounded"
+                        data-testid="bypass-add-to-queue"
+                    >
+                        <Plus className="h-4 w-4 mr-1" /> Add
+                    </Button>
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
 export default function Room() {
     const params = useParams();
     const router = useRouter();
@@ -159,6 +231,15 @@ export default function Room() {
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    // Spec 2: bypass preview state (shared by search-bar and dialog paths)
+    const [bypassPreview, setBypassPreview] = useState<BypassPreview | null>(
+        null
+    );
+    // Spec 2: paste-link dialog state
+    const [directLinkOpen, setDirectLinkOpen] = useState(false);
+    const [directLinkInput, setDirectLinkInput] = useState("");
+    const [directLinkPreview, setDirectLinkPreview] =
+        useState<BypassPreview | null>(null);
     // showNamePrompt is now initialized to false, its logic is handled in initializeRoom
     const [activeTab, setActiveTab] = useState("search");
     const [showSidebar, setShowSidebar] = useState(true);
@@ -691,24 +772,189 @@ export default function Room() {
         };
     }, [roomId, isAdmin, isInitialized, firebaseUserId, roomValidationStatus]); // Dependencies
 
+    // Spec 2: kick off a bypass preview + best-effort enrichment.
+    // Returns the rendered preview (or null if the input wasn't a URL/ID).
+    const triggerBypassPreview = async (
+        rawInput: string,
+        target: "search" | "dialog"
+    ) => {
+        const extracted = extractYouTubeVideoId(rawInput);
+        if (!extracted) return null;
+
+        const initial: BypassPreview = {
+            videoId: extracted.videoId,
+            title: genericBypassTitle(extracted.videoId),
+            thumbnail: buildYouTubeThumbnail(extracted.videoId),
+            isEnriching: true,
+        };
+
+        if (target === "search") {
+            setBypassPreview(initial);
+            setSearchResults([]);
+        } else {
+            setDirectLinkPreview(initial);
+        }
+
+        // Best-effort enrichment. Never throws; never blocks the UI.
+        try {
+            const items = await enrichYouTubeIds([extracted.videoId]);
+            const enriched = items.find((it) => it.id === extracted.videoId);
+            if (enriched) {
+                const updated: BypassPreview = {
+                    ...initial,
+                    title: enriched.title || initial.title,
+                    thumbnail: enriched.thumbnail || initial.thumbnail,
+                    channel: enriched.channel,
+                    duration: enriched.duration,
+                    isEnriching: false,
+                    enrichmentFailed: !enriched.title,
+                };
+                if (target === "search") {
+                    setBypassPreview((prev) =>
+                        prev && prev.videoId === extracted.videoId
+                            ? updated
+                            : prev
+                    );
+                } else {
+                    setDirectLinkPreview((prev) =>
+                        prev && prev.videoId === extracted.videoId
+                            ? updated
+                            : prev
+                    );
+                }
+            } else {
+                // 200 but no items → enrichment unavailable
+                const updated: BypassPreview = {
+                    ...initial,
+                    isEnriching: false,
+                    enrichmentFailed: true,
+                };
+                if (target === "search") {
+                    setBypassPreview((prev) =>
+                        prev && prev.videoId === extracted.videoId
+                            ? updated
+                            : prev
+                    );
+                } else {
+                    setDirectLinkPreview((prev) =>
+                        prev && prev.videoId === extracted.videoId
+                            ? updated
+                            : prev
+                    );
+                }
+            }
+        } catch {
+            const updated: BypassPreview = {
+                ...initial,
+                isEnriching: false,
+                enrichmentFailed: true,
+            };
+            if (target === "search") {
+                setBypassPreview((prev) =>
+                    prev && prev.videoId === extracted.videoId ? updated : prev
+                );
+            } else {
+                setDirectLinkPreview((prev) =>
+                    prev && prev.videoId === extracted.videoId ? updated : prev
+                );
+            }
+        }
+
+        return initial;
+    };
+
+    // Spec 2: queue the song from a preview card. Used by both the search-bar
+    // preview and the dialog preview.
+    const queueFromPreview = async (preview: BypassPreview) => {
+        const newSong: Song = {
+            id: preview.videoId,
+            title: preview.title,
+            thumbnail: preview.thumbnail,
+            addedBy: userName,
+        };
+        await addSongToQueue(roomId, newSong);
+        toast({
+            title: "Song Added",
+            description: `"${preview.title}" added to queue`,
+        });
+        if (!currentSongCombined && isAdmin) {
+            await updateCurrentSong(roomId, newSong);
+            await updatePlayerState(roomId, true, false);
+        }
+    };
+
     // Handle search
     const handleSearch = async () => {
-        if (searchQuery.trim()) {
-            try {
-                setIsSearching(true);
-                const results = await searchYouTube(searchQuery);
-                setSearchResults(results || []);
-            } catch (error) {
-                console.error("Error searching YouTube:", error);
+        const trimmed = searchQuery.trim();
+        if (!trimmed) return;
+
+        // 1. URL/ID bypass — render preview card instead of auto-adding.
+        const extracted = extractYouTubeVideoId(trimmed);
+        if (extracted) {
+            await triggerBypassPreview(trimmed, "search");
+            // Keep the input so the user can see what they pasted; clearing
+            // happens after they click "Add to Queue".
+            return;
+        }
+
+        // 2. Free-text query — go through the rotating-key API route.
+        try {
+            setIsSearching(true);
+            setBypassPreview(null);
+            const results = await searchYouTubeViaApi(trimmed);
+            setSearchResults(results || []);
+        } catch (error) {
+            console.error("Error searching YouTube:", error);
+
+            if (error instanceof YouTubeQuotaExceededError) {
+                toast({
+                    title: "Daily search limit reached",
+                    description:
+                        "Paste a direct YouTube link or Video ID to add your song!",
+                    variant: "destructive",
+                    duration: 8000,
+                });
+                setSearchResults([]);
+            } else {
                 toast({
                     title: "Search Error",
                     description:
                         "Failed to search for videos. Please try again.",
                     variant: "destructive",
                 });
-            } finally {
-                setIsSearching(false);
             }
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    // Spec 2: dialog "Add to Queue" handler
+    const handleDirectLinkAdd = async () => {
+        if (!directLinkPreview) return;
+        try {
+            await queueFromPreview(directLinkPreview);
+            setDirectLinkOpen(false);
+            setDirectLinkInput("");
+            setDirectLinkPreview(null);
+            setActiveTab("queue");
+        } catch (error) {
+            console.error("Error adding direct YouTube link:", error);
+            toast({
+                title: "Error",
+                description: "Failed to add video to queue",
+                variant: "destructive",
+            });
+        }
+    };
+
+    // Spec 2: dialog input change → live preview
+    const handleDirectLinkInputChange = (value: string) => {
+        setDirectLinkInput(value);
+        const extracted = extractYouTubeVideoId(value);
+        if (extracted) {
+            void triggerBypassPreview(value, "dialog");
+        } else {
+            setDirectLinkPreview(null);
         }
     };
 
@@ -1482,7 +1728,7 @@ export default function Room() {
                                     <div className="flex mb-4">
                                         <Input
                                             type="text"
-                                            placeholder="Search for songs..."
+                                            placeholder="Search for songs or paste a YouTube link/ID..."
                                             value={searchQuery}
                                             onChange={(e) =>
                                                 setSearchQuery(e.target.value)
@@ -1495,7 +1741,7 @@ export default function Room() {
                                         />
                                         <Button
                                             onClick={handleSearch}
-                                            className="bg-purple-600 hover:bg-purple-500"
+                                            className="bg-purple-600 hover:bg-purple-500 mr-2"
                                             disabled={isSearching}
                                         >
                                             {isSearching ? (
@@ -1504,6 +1750,75 @@ export default function Room() {
                                                 <Search className="h-4 w-4" />
                                             )}
                                         </Button>
+                                        {/* Spec 2: Paste Link entry point */}
+                                        <Dialog
+                                            open={directLinkOpen}
+                                            onOpenChange={(open) => {
+                                                setDirectLinkOpen(open);
+                                                if (!open) {
+                                                    setDirectLinkInput("");
+                                                    setDirectLinkPreview(null);
+                                                }
+                                            }}
+                                        >
+                                            <DialogTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="border-gray-600 bg-gray-700 hover:bg-gray-600"
+                                                    title="Paste YouTube link or video ID"
+                                                    aria-label="Paste YouTube link or video ID"
+                                                >
+                                                    <Link2 className="h-4 w-4" />
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="bg-gray-800 border-gray-700 text-white sm:max-w-md">
+                                                <DialogHeader>
+                                                    <DialogTitle>
+                                                        Paste YouTube link or
+                                                        Video ID
+                                                    </DialogTitle>
+                                                </DialogHeader>
+                                                <div className="space-y-3">
+                                                    <p className="text-xs text-gray-400">
+                                                        Paste any YouTube link
+                                                        (watch, shorts, youtu.be,
+                                                        embed) or an 11-character
+                                                        Video ID. This bypasses
+                                                        search quota entirely.
+                                                    </p>
+                                                    <Input
+                                                        autoFocus
+                                                        placeholder="https://youtu.be/... or dQw4w9WgXcQ"
+                                                        value={directLinkInput}
+                                                        onChange={(e) =>
+                                                            handleDirectLinkInputChange(
+                                                                e.target.value
+                                                            )
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            if (
+                                                                e.key ===
+                                                                    "Enter" &&
+                                                                directLinkPreview
+                                                            ) {
+                                                                handleDirectLinkAdd();
+                                                            }
+                                                        }}
+                                                        className="bg-gray-700 border-gray-600"
+                                                    />
+                                                    {directLinkPreview && (
+                                                        <BypassPreviewCard
+                                                            preview={
+                                                                directLinkPreview
+                                                            }
+                                                            onAdd={
+                                                                handleDirectLinkAdd
+                                                            }
+                                                        />
+                                                    )}
+                                                </div>
+                                            </DialogContent>
+                                        </Dialog>
                                     </div>
 
                                     <ScrollArea
@@ -1511,6 +1826,37 @@ export default function Room() {
                                         orientation="vertical"
                                     >
                                         <div className="space-y-3 p-3">
+                                            {/* Spec 2: bypass preview card (URL/ID path) */}
+                                            {bypassPreview && (
+                                                <BypassPreviewCard
+                                                    preview={bypassPreview}
+                                                    onAdd={async () => {
+                                                        try {
+                                                            await queueFromPreview(
+                                                                bypassPreview
+                                                            );
+                                                            setBypassPreview(
+                                                                null
+                                                            );
+                                                            setSearchQuery("");
+                                                            setActiveTab(
+                                                                "queue"
+                                                            );
+                                                        } catch (error) {
+                                                            console.error(
+                                                                "Error adding direct YouTube link:",
+                                                                error
+                                                            );
+                                                            toast({
+                                                                title: "Error",
+                                                                description:
+                                                                    "Failed to add video to queue",
+                                                                variant: "destructive",
+                                                            });
+                                                        }
+                                                    }}
+                                                />
+                                            )}
                                             {searchResults.map((result) => (
                                                 <motion.div
                                                     key={result.id.videoId}
