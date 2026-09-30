@@ -240,6 +240,13 @@ export default function Room() {
     const [directLinkInput, setDirectLinkInput] = useState("");
     const [directLinkPreview, setDirectLinkPreview] =
         useState<BypassPreview | null>(null);
+
+    // Throttle: minimum gap between consecutive searches/bypass renders.
+    // Prevents button-spam and Enter-key-spam from exhausting the API quota.
+    // Refs persist across renders without triggering re-renders themselves.
+    const MIN_SEARCH_INTERVAL_MS = 1500;
+    const lastSearchAtRef = useRef<number>(0);
+    const lastBypassAtRef = useRef<number>(0);
     // showNamePrompt is now initialized to false, its logic is handled in initializeRoom
     const [activeTab, setActiveTab] = useState("search");
     const [showSidebar, setShowSidebar] = useState(true);
@@ -883,14 +890,28 @@ export default function Room() {
         }
     };
 
+    // Returns true if the throttle window is still active; updates the ref
+    // on success. Used to block button-spam and Enter-key-spam.
+    const consumeThrottle = (ref: React.MutableRefObject<number>): boolean => {
+        const now = Date.now();
+        if (now - ref.current < MIN_SEARCH_INTERVAL_MS) {
+            return false;
+        }
+        ref.current = now;
+        return true;
+    };
+
     // Handle search
     const handleSearch = async () => {
         const trimmed = searchQuery.trim();
         if (!trimmed) return;
 
         // 1. URL/ID bypass — render preview card instead of auto-adding.
+        // Bypass previews are cheap (no API call) but enrichment is, so we
+        // still throttle to avoid enrichment-spam from paste-spam.
         const extracted = extractYouTubeVideoId(trimmed);
         if (extracted) {
+            if (!consumeThrottle(lastBypassAtRef)) return;
             await triggerBypassPreview(trimmed, "search");
             // Keep the input so the user can see what they pasted; clearing
             // happens after they click "Add to Queue".
@@ -898,6 +919,7 @@ export default function Room() {
         }
 
         // 2. Free-text query — go through the rotating-key API route.
+        if (!consumeThrottle(lastSearchAtRef)) return;
         try {
             setIsSearching(true);
             setBypassPreview(null);
@@ -931,6 +953,8 @@ export default function Room() {
     // Spec 2: dialog "Add to Queue" handler
     const handleDirectLinkAdd = async () => {
         if (!directLinkPreview) return;
+        // Throttle prevents double-click from queueing the same song twice.
+        if (!consumeThrottle(lastBypassAtRef)) return;
         try {
             await queueFromPreview(directLinkPreview);
             setDirectLinkOpen(false);
@@ -947,11 +971,13 @@ export default function Room() {
         }
     };
 
-    // Spec 2: dialog input change → live preview
+    // Spec 2: dialog input change → live preview (throttled to avoid
+    // enrichment-spam when the user is still typing/pasting).
     const handleDirectLinkInputChange = (value: string) => {
         setDirectLinkInput(value);
         const extracted = extractYouTubeVideoId(value);
         if (extracted) {
+            if (!consumeThrottle(lastBypassAtRef)) return;
             void triggerBypassPreview(value, "dialog");
         } else {
             setDirectLinkPreview(null);
@@ -1831,6 +1857,15 @@ export default function Room() {
                                                 <BypassPreviewCard
                                                     preview={bypassPreview}
                                                     onAdd={async () => {
+                                                        // Throttle prevents
+                                                        // double-click queue
+                                                        // duplicates.
+                                                        if (
+                                                            !consumeThrottle(
+                                                                lastBypassAtRef
+                                                            )
+                                                        )
+                                                            return;
                                                         try {
                                                             await queueFromPreview(
                                                                 bypassPreview
