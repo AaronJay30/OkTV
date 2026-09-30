@@ -157,7 +157,7 @@ pnpm docker:start:detached
     # yarn install
     ```
 3.  **Set up Environment Variables:**
-    Create a `.env.local` file in the root directory of the project. You'll need to add your Firebase project configuration and a YouTube Data API v3 key.
+    Create a `.env.local` file in the root directory of the project. You'll need to add your Firebase project configuration and one or more YouTube Data API v3 keys.
 
     Example `.env.local`:
 
@@ -170,12 +170,35 @@ pnpm docker:start:detached
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your_firebase_messaging_sender_id"
     NEXT_PUBLIC_FIREBASE_APP_ID="your_firebase_app_id"
 
-    # YouTube Data API v3 Key
-    NEXT_PUBLIC_YOUTUBE_API_KEY="your_youtube_api_key"
+    # YouTube Data API v3 Keys (server-only — do NOT prefix with NEXT_PUBLIC_)
+    # The /api/youtube/search route rotates through this pool automatically.
+    # Add as many keys as you have, ideally distributed across multiple GCP
+    # projects so each project has its own daily quota.
+    YOUTUBE_API_KEY_1="your_youtube_api_key_1"
+    YOUTUBE_API_KEY_2="your_youtube_api_key_2"
+    YOUTUBE_API_KEY_3="your_youtube_api_key_3"
+
+    # Legacy single-key form is also accepted:
+    # YOUTUBE_API_KEY="your_youtube_api_key"
+
+    # Auto-rotate through the pool when a key hits a quota-class error
+    # (rateLimitExceeded, quotaExceeded, etc.). When false, the route uses only
+    # YOUTUBE_API_KEY and surfaces the first quota error as 429 immediately.
+    # Accepted: true | false (default: true)
+    YOUTUBE_API_KEY_AUTO_ROTATE="true"
+
+    # Maximum number of YOUTUBE_API_KEY_N slots the route will scan (1-100,
+    # default 20). Set this to however many keys you actually have so the route
+    # reads every configured key without you touching the code. Example: 8 today,
+    # 12 next week — just bump this number.
+    YOUTUBE_API_KEY_MAX_SLOTS="20"
     ```
 
     -   Get your Firebase configuration from your Firebase project settings.
     -   Get your YouTube API key from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Make sure the YouTube Data API v3 is enabled for your project.
+    -   **Important:** keys must live in **different GCP projects** to benefit from rotation. Multiple keys in the same project share one per-project daily quota and will all hit `rateLimitExceeded` at the same time. See [`specs/01-rotational-api-key.md`](specs/01-rotational-api-key.md) for details.
+    -   **`YOUTUBE_API_KEY_AUTO_ROTATE`** — set to `false` if you want fail-fast behavior (only `YOUTUBE_API_KEY` is used; the first quota error returns `429` without trying the other keys). Default is `true`.
+    -   **`YOUTUBE_API_KEY_MAX_SLOTS`** — how many `YOUTUBE_API_KEY_N` slots the route scans. Use 8 today, 12 next week, whatever you need. Range `1`-`100`, default `20`.
 
 4.  **Start the development server:**
     ```bash

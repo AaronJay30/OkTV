@@ -234,3 +234,54 @@ function getMockSearchResults(query: string): YouTubeSearchResult[] {
 
     return allResults;
 }
+
+// =============================================================================
+// Routed search (uses /api/youtube/search with key rotation + 429 handling)
+// =============================================================================
+//
+// The server-side route at /api/youtube/search rotates through the configured
+// API key pool. When every key is exhausted it returns HTTP 429 with body
+// `{ error: "QUOTA_EXHAUSTED", message }`.
+//
+// `searchYouTubeViaApi` surfaces that case as a typed `YouTubeQuotaExceededError`
+// so callers can show a user-friendly message instead of a generic failure.
+
+export class YouTubeQuotaExceededError extends Error {
+    constructor(message?: string) {
+        super(message ?? "QUOTA_EXHAUSTED");
+        this.name = "YouTubeQuotaExceededError";
+    }
+}
+
+/**
+ * Calls the server-side `/api/youtube/search` route. Throws
+ * {@link YouTubeQuotaExceededError} when the pool is exhausted (HTTP 429).
+ */
+export async function searchYouTubeViaApi(
+    query: string
+): Promise<YouTubeSearchResult[]> {
+    const url = `/api/youtube/search?q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, { cache: "no-store" });
+
+    if (response.status === 429) {
+        throw new YouTubeQuotaExceededError();
+    }
+
+    if (!response.ok) {
+        let detail = "";
+        try {
+            const body = await response.json();
+            detail = body?.message || body?.error || "";
+        } catch {
+            // ignore — body wasn't JSON
+        }
+        throw new Error(
+            `YouTube search failed (${response.status})${detail ? `: ${detail}` : ""}`
+        );
+    }
+
+    const data = await response.json();
+    return Array.isArray(data?.items)
+        ? (data.items as YouTubeSearchResult[])
+        : [];
+}
