@@ -25,6 +25,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useFlags, shouldSkipCreateRoomModal } from "@/hooks/use-flags";
 
 export default function Home() {
     const router = useRouter();
@@ -36,7 +37,20 @@ export default function Home() {
     const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
     const [scorerEnabled, setScorerEnabled] = useState(false); // New state for scorer feature
 
+    // Spec 04 §7: when createRoomModalEnabled is off OR when all
+    // feature flags are off, skip the dialog entirely and create
+    // the room directly. Reading the flag once at render time is
+    // fine — toggling flags and immediately re-creating isn't a
+    // supported flow.
+    const { flags } = useFlags();
+    const skipModal = shouldSkipCreateRoomModal(flags);
+
     const handleCreateRoomClick = () => {
+        if (skipModal) {
+            // Spec §7: skip-modal — call createRoom with default (false) flags.
+            void handleCreateRoom();
+            return;
+        }
         setShowCreateDialog(true);
     };
 
