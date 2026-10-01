@@ -173,11 +173,14 @@ operational concern.
   the **RTDB security rules** level:
   - `scorerEnabled` off → rules deny writes to `rooms/{id}/scores`.
   - `phoneMicEnabled` off → rules deny writes to `rooms/{id}/micSignal`.
-- **Skip-modal behavior:** when a user clicks "Create Room," the home
-  page checks flags via `shouldSkipCreateRoomModal`. If both feature
-  flags are off, the modal is skipped and the room is created directly
-  with defaults. This removes friction for users who don't want to
-  configure anything.
+- **Skip-modal + per-feature hide behavior:** when a user clicks
+  "Create Room":
+  - If **both** feature flags are off → modal is skipped entirely,
+    room is created with all features disabled.
+  - If **at least one** feature flag is on → modal opens, showing
+    switches only for the admin-enabled features. Admin-disabled
+    features are hidden (not greyed out) — the user can only
+    configure what the admin has allowed.
 
 ### 7.1 RTDB rules gap (known limitation)
 
