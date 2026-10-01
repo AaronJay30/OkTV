@@ -100,6 +100,25 @@ export const checkRoomExists = async (roomId: string): Promise<boolean> => {
     return snapshot.exists();
 };
 
+/**
+ * SECURITY: idempotently seed the admin user into an existing room.
+ * Unlike createRoom, this does NOT overwrite room metadata, does NOT
+ * reset feature flags, and does NOT run cleanupOldRooms. Use this on
+ * admin re-mount / page reload when the room is already known to
+ * exist (e.g. created via the home page's create flow).
+ */
+export const seedAdminUser = async (
+    roomId: string,
+    adminUser: User
+): Promise<void> => {
+    const adminUserRef = ref(rtdb, `rooms/${roomId}/users/${adminUser.id}`);
+    await set(adminUserRef, {
+        name: adminUser.name,
+        isAdmin: adminUser.isAdmin,
+        joinedAt: new Date().toISOString(),
+    });
+};
+
 export const subscribeToRoom = (
     roomId: string,
     callback: (data: any) => void

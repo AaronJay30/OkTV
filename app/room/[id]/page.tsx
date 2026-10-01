@@ -72,6 +72,7 @@ import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fal
 import {
     createRoom,
     checkRoomExists,
+    seedAdminUser,
     addSongToQueue,
     // removeSongFromQueue, // Will use safelyRemoveSong from the combined hook
     addUserToRoom,
@@ -406,12 +407,15 @@ export default function Room() {
             if (exists) {
                 setRoomValidationStatus("valid");
             } else {
-                if (isAdmin) {
-                    setRoomValidationStatus("valid"); // Admin can create room
-                } else {
-                    setRoomValidationStatus("invalid_redirecting");
-                    router.push("/room-not-found");
-                }
+                // SECURITY: previously admins could land on a random 6-char
+                // URL with `?admin=true` and have the app auto-create that
+                // room in RTDB — i.e., anyone could squat a room ID by
+                // guessing one. Now both guests and admins are redirected
+                // to /room-not-found for unknown rooms. To create a new
+                // room, admins must use the Create Room flow on `/`
+                // (which generates a fresh ID and redirects to it).
+                setRoomValidationStatus("invalid_redirecting");
+                router.push("/room-not-found");
             }
         };
         check();
@@ -688,10 +692,15 @@ export default function Room() {
                     isAdmin: true,
                 };
                 try {
-                    const roomExists = await checkRoomExists(roomId);
-                    if (!roomExists) {
-                        await createRoom(roomId, adminUser);
-                    }
+                    // SECURITY: removed the auto-create-on-missing-room
+                    // branch. Unknown admin URLs are now rejected by the
+                    // existence check above, so reaching this code means
+                    // the room already exists (created from `/`). We
+                    // idempotently seed the admin user via seedAdminUser
+                    // — NOT createRoom — to avoid re-running cleanup
+                    // and overwriting room metadata (micFeatureEnabled /
+                    // scorerEnabled) on every admin page mount.
+                    await seedAdminUser(roomId, adminUser);
                     setFirebaseUserId("admin");
                 } catch (error) {
                     console.error("Error initializing admin room:", error);
@@ -1139,14 +1148,14 @@ export default function Room() {
     };
 
     // Handle closing the score modal
-    const handleCloseScoreModal = async () => {
+    const handleCloseScoreModal = () => {
         setShowScoreModal(false);
-
-        // If song has ended (player state is 0), proceed with ending the song after modal is closed
-        const playerState = playerRef.current?.getPlayerState?.();
-        if (playerState === 0 && isAdmin) {
-            await queueActions.handleSongEnded();
-        }
+        // NOTE: Queue advancement intentionally NOT handled here anymore.
+        // onPlayerStateChange now advances the queue immediately when a song
+        // ends (regardless of scorer state), so the modal close is purely
+        // cosmetic. Relying on getPlayerState() === 0 at close-time was a bug:
+        // the player transitions away from state 0 as soon as the next song
+        // loads, so handleSongEnded never ran and the queue got stuck.
     };
 
     // Handle video volume change
@@ -1378,14 +1387,16 @@ export default function Room() {
         //  3 (buffering)
         //  5 (video cued)
         if (event.data === 0 && isAdmin) {
-            // Song ended
+            // Song ended — ALWAYS advance the queue first. The score modal can
+            // render the just-ended song from props; it doesn't need the queue
+            // parked on the old entry. (Previously, when the scorer was enabled,
+            // handleSongEnded was deferred to modal-close and gated on
+            // getPlayerState() === 0 — which stopped matching once the next
+            // song loaded, leaving the queue stuck.)
+            await queueActions.handleSongEnded();
             if (roomData?.scorerEnabled && currentSongCombined) {
-                // Automatically show score when song ends if scoring is enabled
+                // Show the score modal for the just-ended song
                 handleShowScore();
-                // handleSongEnded will be called after the score modal is closed
-            } else {
-                // If scoring isn't enabled, proceed with ending the song
-                await queueActions.handleSongEnded();
             }
         } else if (event.data === 1) {
             // Song is playing
@@ -1468,69 +1479,76 @@ export default function Room() {
                                         Share the room
                                     </DialogTitle>
                                 </DialogHeader>
-                                <div className="flex flex-col items-center justify-center p-4 space-y-4">
-                                    <div className="bg-white p-4 rounded-lg">
-                                        {origin && (
-                                            <QRCodeSVG
-                                                value={`${origin}/join?room=${roomId}`}
-                                                size={200}
-                                                level="H"
-                                            />
-                                        )}
-                                    </div>
-
-                                    {/* Code Box */}
-                                    <div className="w-full">
-                                        <label className="text-sm font-medium text-center text-purple-400 block mb-2">
-                                            Code
-                                        </label>
-                                        <div className="bg-gray-800 p-2 rounded-lg border text-center border-purple-500/30 text-white w-full">
-                                            <span className="font-mono tracking-wider text-white text-md">
-                                                {roomId}
-                                            </span>
+                                {/* Horizontal layout: QR left, Code+Link stacked right */}
+                                <div className="flex flex-col sm:flex-row items-start justify-center gap-6 p-4">
+                                    {/* Left column: QR code */}
+                                    <div className="flex-shrink-0 flex items-center justify-center mx-auto sm:mx-0">
+                                        <div className="bg-white p-3 rounded-lg">
+                                            {origin && (
+                                                <QRCodeSVG
+                                                    value={`${origin}/join?room=${roomId}`}
+                                                    size={160}
+                                                    level="H"
+                                                />
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* Link Box */}
-                                    <div className="w-full">
-                                        <label className="text-sm font-medium text-purple-400 block mb-2 text-center">
-                                            Link
-                                        </label>
-                                        <div className="bg-gray-800 p-2 rounded-lg border border-purple-500/30 text-center text-white w-full">
-                                            <span className="text-sm text-white break-all">
-                                                {origin
-                                                    ? `${origin}/join?room=${roomId}`
-                                                    : "Loading..."}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Microphone Control (Read-only display) */}
-                                    <div className="w-full">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <label className="text-sm font-medium text-purple-400">
-                                                Microphone
+                                    {/* Right column: Code + Link stacked vertically */}
+                                    <div className="flex flex-col gap-4 w-full min-w-0">
+                                        {/* Code Box */}
+                                        <div>
+                                            <label className="text-sm font-medium text-purple-400 block mb-2">
+                                                Code
                                             </label>
-                                            <div className="flex items-center">
-                                                <span
-                                                    className={`inline-flex h-3 w-3 rounded-full mr-2 ${
-                                                        roomData?.micFeatureEnabled
-                                                            ? "bg-green-500"
-                                                            : "bg-red-500"
-                                                    }`}
-                                                ></span>
-                                                <span className="text-xs">
-                                                    {roomData?.micFeatureEnabled
-                                                        ? "Enabled"
-                                                        : "Disabled"}
+                                            <div className="bg-gray-800 p-2 rounded-lg border text-center border-purple-500/30 text-white w-full">
+                                                <span className="font-mono tracking-wider text-white text-lg">
+                                                    {roomId}
                                                 </span>
                                             </div>
                                         </div>
-                                        <div className="text-xs text-center text-gray-400 mt-1 p-2 bg-gray-800 rounded border border-gray-700">
-                                            {roomData?.micFeatureEnabled
-                                                ? "Users can use their phones as microphones in this session"
-                                                : "Phone microphone functionality is currently disabled"}
+
+                                        {/* Link Box */}
+                                        <div>
+                                            <label className="text-sm font-medium text-purple-400 block mb-2">
+                                                Link
+                                            </label>
+                                            <div className="bg-gray-800 p-2 rounded-lg border border-purple-500/30 text-center text-white w-full">
+                                                <span className="text-sm text-white break-all">
+                                                    {origin
+                                                        ? `${origin}/join?room=${roomId}`
+                                                        : "Loading..."}
+                                                </span>
+                                            </div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Microphone Control (Read-only display) */}
+                                <div className="w-full">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-sm font-medium text-purple-400">
+                                            Microphone
+                                        </label>
+                                        <div className="flex items-center">
+                                            <span
+                                                className={`inline-flex h-3 w-3 rounded-full mr-2 ${
+                                                    roomData?.micFeatureEnabled
+                                                        ? "bg-green-500"
+                                                        : "bg-red-500"
+                                                }`}
+                                            ></span>
+                                            <span className="text-xs">
+                                                {roomData?.micFeatureEnabled
+                                                    ? "Enabled"
+                                                    : "Disabled"}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-center text-gray-400 mt-1 p-2 bg-gray-800 rounded border border-gray-700">
+                                        {roomData?.micFeatureEnabled
+                                            ? "Users can use their phones as microphones in this session"
+                                            : "Phone microphone functionality is currently disabled"}
                                     </div>
                                 </div>
                             </DialogContent>
