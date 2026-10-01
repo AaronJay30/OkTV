@@ -4,7 +4,28 @@
 
 **OKtv** is a real-time, interactive karaoke application that lets you and your friends create virtual rooms, queue up your favorite YouTube tracks, and sing your hearts out together!
 
-## 🚀 Version 3.0: Performance Scoring System
+## � Run on Android TV / Google TV
+
+OKtv ships as a sideloadable APK for Android TV and Google TV. The web app is
+fully D-pad ready (visible focus ring, Back closes dialogs, popular-songs
+fallback for browsers without an on-screen keyboard).
+
+**Quick install (TV with developer mode enabled):**
+
+1. From your TV's browser, download the APK:
+   👉 [https://o-ktv.vercel.app/oktv-tv.apk](https://o-ktv.vercel.app/oktv-tv.apk)
+2. Open the downloaded file and grant the install-permission prompt.
+3. OKtv appears in your TV's **Your apps** row.
+4. Launch it — fullscreen karaoke, no browser chrome.
+
+You can also grab the APK from the home page of this app — look for the
+"Download for Android TV" link below the Create/Join buttons.
+
+For build-from-source instructions and Digital Asset Links setup, see
+[Building for Android TV / Google TV](#-building-for-android-tv--google-tv)
+below.
+
+## �🚀 Version 3.0: Performance Scoring System
 
 We're excited to announce our brand new karaoke scoring feature that turns your performances into friendly competitions:
 

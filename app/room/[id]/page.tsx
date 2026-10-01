@@ -1223,6 +1223,21 @@ export default function Room() {
     const hasFirebaseError =
         [combinedError, usersError, roomError].filter(Boolean).length >= 3;
 
+    // Spec 3: detect "TV-like" coarse pointer devices (no mouse). Used to
+    // surface the common-queries fallback list when there's no on-screen
+    // keyboard handy. MUST be declared above any early `return (...)` in the
+    // component body — Rules of Hooks.
+    const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+    useEffect(() => {
+        if (typeof window === "undefined" || !window.matchMedia) return;
+        const mq = window.matchMedia("(pointer: coarse)");
+        setIsCoarsePointer(mq.matches);
+        const onChange = (e: MediaQueryListEvent) =>
+            setIsCoarsePointer(e.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+
     // ---- ORDER OF RENDERING CHECKS ----
 
     // 1. Validation Status Loader
@@ -1386,20 +1401,6 @@ export default function Room() {
             }
         }
     };
-
-    // Spec 3: detect "TV-like" coarse pointer devices (no mouse). Used to
-    // surface the common-queries fallback list when there's no on-screen
-    // keyboard handy.
-    const [isCoarsePointer, setIsCoarsePointer] = useState(false);
-    useEffect(() => {
-        if (typeof window === "undefined" || !window.matchMedia) return;
-        const mq = window.matchMedia("(pointer: coarse)");
-        setIsCoarsePointer(mq.matches);
-        const onChange = (e: MediaQueryListEvent) =>
-            setIsCoarsePointer(e.matches);
-        mq.addEventListener("change", onChange);
-        return () => mq.removeEventListener("change", onChange);
-    }, []);
 
     const handleCommonQueryPick = (query: string) => {
         setSearchQuery(query);

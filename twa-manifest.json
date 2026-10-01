@@ -1,40 +1,49 @@
 {
-    "packageId": "com.oktv.karaoke",
-    "host": "o-ktv.vercel.app",
-    "name": "OKtv Karaoke",
-    "launcherName": "OKtv",
-    "display": "standalone",
-    "orientation": "landscape",
-    "iconUrl": "https://o-ktv.vercel.app/icon-512.png",
-    "maskableIconUrl": "https://o-ktv.vercel.app/icon-maskable-512.png",
-    "monochromeIconUrl": null,
-    "themeColor": "#7c3aed",
-    "navigationColor": "#000000",
-    "backgroundColor": "#000000",
-    "enableNotifications": false,
-    "splashScreenFadeOutDuration": 300,
-    "signingKey": {
-        "path": "./android.keystore",
-        "alias": "androiddebugkey"
-    },
-    "minSdkVersion": 24,
-    "targetSdkVersion": 34,
-    "appVersion": "2.2.0",
-    "appVersionCode": 220,
-    "shortcuts": [],
-    "additionalTrustedOrigins": [],
-    "features": {
-        "webViewForceDark": "off",
-        "locationDelegation": "off",
-        "playBilling": "off",
-        "chromeOSAutofill": "off",
-        "notifications": "off"
-    },
-    "alphaDependencies": {
-        "enabled": false
-    },
-    "enableSiteSettings": true,
-    "isChromeOSOnly": false,
-    "isDebugMode": false,
-    "appVersionName": "2.2.0"
+  "packageId": "com.oktv.karaoke",
+  "host": "o-ktv.vercel.app",
+  "name": "OKtv Karaoke",
+  "launcherName": "OKtv",
+  "display": "standalone",
+  "themeColor": "#7C3AED",
+  "themeColorDark": "#000000",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#000000",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://o-ktv.vercel.app/icon-512.png",
+  "maskableIconUrl": "https://o-ktv.vercel.app/icon-maskable-512.png",
+  "monochromeIconUrl": null,
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "androiddebugkey"
+  },
+  "appVersionName": "2.2.0",
+  "appVersionCode": 221,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "fallbackType": "customtabs",
+  "features": {
+    "webViewForceDark": "off",
+    "locationDelegation": "off",
+    "playBilling": "off",
+    "chromeOSAutofill": "off",
+    "notifications": "off"
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 24,
+  "orientation": "landscape",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "displayOverride": [],
+  "appVersion": "2.2.0"
 }
