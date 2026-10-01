@@ -1,0 +1,40 @@
+{
+    "packageId": "com.oktv.karaoke",
+    "host": "oktv.app",
+    "name": "OKtv Karaoke",
+    "launcherName": "OKtv",
+    "display": "standalone",
+    "orientation": "landscape",
+    "iconUrl": "https://oktv.app/icon-512.png",
+    "maskableIconUrl": "https://oktv.app/icon-maskable-512.png",
+    "monochromeIconUrl": null,
+    "themeColor": "#7c3aed",
+    "navigationColor": "#000000",
+    "backgroundColor": "#000000",
+    "enableNotifications": false,
+    "splashScreenFadeOutDuration": 300,
+    "signingKey": {
+        "path": "./android.keystore",
+        "alias": "androiddebugkey"
+    },
+    "minSdkVersion": 24,
+    "targetSdkVersion": 34,
+    "appVersion": "2.2.0",
+    "appVersionCode": 220,
+    "shortcuts": [],
+    "additionalTrustedOrigins": [],
+    "features": {
+        "webViewForceDark": "off",
+        "locationDelegation": "off",
+        "playBilling": "off",
+        "chromeOSAutofill": "off",
+        "notifications": "off"
+    },
+    "alphaDependencies": {
+        "enabled": false
+    },
+    "enableSiteSettings": true,
+    "isChromeOSOnly": false,
+    "isDebugMode": false,
+    "appVersionName": "2.2.0"
+}

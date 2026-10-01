@@ -208,7 +208,62 @@ pnpm docker:start:detached
     ```
 5.  Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
 
-## 🛠️ Built With
+## � Building for Android TV / Google TV
+
+The web app is keyboard / D-pad ready (visible focus ring, roving lists, Back
+closes dialogs) and ships with a PWA manifest + service worker so it can be
+packaged as an Android TV APK using [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap).
+
+### Prerequisites
+
+-   **Java 17+** and **Android SDK** with `cmdline-tools`, `platform-tools`,
+    and `build-tools;34.0.0` installed.
+-   **Bubblewrap CLI:** `npm install -g @bubblewrap/cli`
+-   A **deployed HTTPS origin** for the Next.js app (e.g. Vercel). TWA
+    requires HTTPS — `localhost` won't work for the final APK.
+-   Update `twa-manifest.json` `host` to your real domain (currently `oktv.app`).
+
+### Build steps
+
+```bash
+# 1. Build the web app
+pnpm build
+
+# 2. Initialize the Android project (one-time)
+pnpm tv:init
+
+# 3. Build a signed APK + patch the Leanback launcher intent filter
+pnpm tv:build
+```
+
+Output: `android/app/build/outputs/apk/release/app-release.apk` — sideload
+with `adb install app-release.apk` on a TV or emulator.
+
+### Digital Asset Links
+
+For the APK to launch fullscreen (no browser chrome), host your Digital
+Asset Links declaration at:
+
+```
+https://your-domain/.well-known/assetlinks.json
+```
+
+A template lives at `public/.well-known/assetlinks.json`. Replace
+`REPLACE_WITH_YOUR_SHA256_FINGERPRINT` with the SHA-256 of your signing
+key (get it with `keytool -list -v -keystore android.keystore | grep SHA256`).
+
+Validate at https://developers.google.com/digital-asset-links/tools/generator.
+
+### Testing on the TV emulator
+
+Android Studio → SDK Manager → SDK Tools → check **Android TV System Image**
+under the version you target. Create an AVD with that image, boot it, then
+`adb install app-release.apk`. The app should appear in the launcher's
+"Your apps" row.
+
+See [`specs/03-tv-remote-navigation.md`](specs/03-tv-remote-navigation.md) for the full design.
+
+## �🛠️ Built With
 
 -   **Framework:** [Next.js](https://nextjs.org/) (React)
 -   **Backend & Realtime Database:** [Firebase](https://firebase.google.com/) (Firestore, Realtime Database features)

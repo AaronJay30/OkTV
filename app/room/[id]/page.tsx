@@ -66,6 +66,9 @@ import { Slider } from "@/components/ui/slider";
 import { ScoreDisplayModal } from "@/components/score-display"; // Import the ScoreDisplayModal
 import { HighScores } from "@/components/high-scores"; // Import the HighScores component
 import { generatePerformanceScore } from "@/lib/scoring-service"; // Import the scoring service
+import { RovingList } from "@/components/ui/roving-list"; // Spec 3: D-pad list navigation
+import { useTvBack } from "@/hooks/use-tv-shortcuts"; // Spec 3: Back button on remote
+import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fallback
 import {
     createRoom,
     checkRoomExists,
@@ -260,6 +263,22 @@ export default function Room() {
     const [showScoreModal, setShowScoreModal] = useState(false);
     const [currentScore, setCurrentScore] = useState(0);
     const [showHighScores, setShowHighScores] = useState(false);
+
+    // Spec 3: TV remote Back button — closes the topmost dialog instead of
+    // navigating out of the room. Radix Dialog already traps Esc, so this
+    // handles the Android TV remote Back button + keyboard Escape parity.
+    useTvBack({
+        isOpen: directLinkOpen,
+        onClose: () => setDirectLinkOpen(false),
+    });
+    useTvBack({
+        isOpen: showScoreModal,
+        onClose: () => setShowScoreModal(false),
+    });
+    useTvBack({
+        isOpen: showHighScores,
+        onClose: () => setShowHighScores(false),
+    });
 
     // Microphone feature states
     const [isMutedByAdmin, setIsMutedByAdmin] = useState(false);
@@ -891,10 +910,25 @@ export default function Room() {
     };
 
     // Returns true if the throttle window is still active; updates the ref
-    // on success. Used to block button-spam and Enter-key-spam.
+    // on success. Used to block button-spam and Enter-key-spam. On TV-style
+    // remotes where the user can't see why a button-press was a no-op, we
+    // show a soft toast the first time the throttle blocks (and then suppress
+    // repeats for ~2s).
+    const lastCooldownToastAtRef = useRef<number>(0);
     const consumeThrottle = (ref: React.MutableRefObject<number>): boolean => {
         const now = Date.now();
         if (now - ref.current < MIN_SEARCH_INTERVAL_MS) {
+            if (now - lastCooldownToastAtRef.current > 2000) {
+                lastCooldownToastAtRef.current = now;
+                const remaining = Math.ceil(
+                    (MIN_SEARCH_INTERVAL_MS - (now - ref.current)) / 1000
+                );
+                toast({
+                    title: "Slow down a sec…",
+                    description: `Please wait ${remaining}s before searching again.`,
+                    duration: 1500,
+                });
+            }
             return false;
         }
         ref.current = now;
@@ -1351,6 +1385,29 @@ export default function Room() {
                 await updatePlayerState(roomId, false, isMutedCombined); // Use isMutedCombined
             }
         }
+    };
+
+    // Spec 3: detect "TV-like" coarse pointer devices (no mouse). Used to
+    // surface the common-queries fallback list when there's no on-screen
+    // keyboard handy.
+    const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+    useEffect(() => {
+        if (typeof window === "undefined" || !window.matchMedia) return;
+        const mq = window.matchMedia("(pointer: coarse)");
+        setIsCoarsePointer(mq.matches);
+        const onChange = (e: MediaQueryListEvent) =>
+            setIsCoarsePointer(e.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+
+    const handleCommonQueryPick = (query: string) => {
+        setSearchQuery(query);
+        // Defer to next tick so the input value is committed before we
+        // trigger the search.
+        setTimeout(() => {
+            void handleSearch();
+        }, 0);
     };
 
     return (
@@ -1892,9 +1949,21 @@ export default function Room() {
                                                     }}
                                                 />
                                             )}
-                                            {searchResults.map((result) => (
+                                            <RovingList
+                                                items={searchResults}
+                                                getKey={(r) => r.id.videoId}
+                                                onActivate={(r) =>
+                                                    handleAddToQueue(r)
+                                                }
+                                                className="space-y-3"
+                                                renderItem={(result, _idx, {
+                                                    itemProps,
+                                                    isFocused,
+                                                }) => (
                                                 <motion.div
-                                                    key={result.id.videoId}
+                                                    {...itemProps}
+                                                    role="button"
+                                                    data-testid="search-result"
                                                     initial={{
                                                         opacity: 0,
                                                         y: 10,
@@ -1903,7 +1972,15 @@ export default function Room() {
                                                         opacity: 1,
                                                         y: 0,
                                                     }}
-                                                    className="flex items-start bg-gray-700/70 hover:bg-gray-700/90 rounded-lg p-3 transition-colors w-full border border-gray-700"
+                                                    onClick={() =>
+                                                        handleAddToQueue(result)
+                                                    }
+                                                    className={
+                                                        "flex items-start bg-gray-700/70 rounded-lg p-3 transition-colors w-full border cursor-pointer " +
+                                                        (isFocused
+                                                            ? "border-purple-400 bg-gray-700/90 ring-2 ring-purple-400"
+                                                            : "border-gray-700 hover:bg-gray-700/90 focus-within:bg-gray-700/90")
+                                                    }
                                                 >
                                                     <div className="flex-shrink-0 mr-3">
                                                         <img
@@ -1974,7 +2051,8 @@ export default function Room() {
                                                         </p>
                                                     </div>
                                                 </motion.div>
-                                            ))}
+                                                )}
+                                            />
 
                                             {isSearching && (
                                                 <div className="text-center py-8 text-gray-400">
@@ -1999,12 +2077,80 @@ export default function Room() {
                                                 )}
 
                                             {!isSearching && !searchQuery && (
-                                                <div className="text-center py-8 text-gray-400">
-                                                    <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                                    <p>
-                                                        Search for your favorite
-                                                        songs to sing
-                                                    </p>
+                                                <div className="space-y-4">
+                                                    <div className="text-center pt-6 text-gray-400">
+                                                        <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                                        <p>
+                                                            Search for your
+                                                            favorite songs to
+                                                            sing
+                                                        </p>
+                                                    </div>
+                                                    {isCoarsePointer && (
+                                                        <div className="px-2">
+                                                            <h4 className="text-sm font-medium text-purple-200 mb-2 px-1">
+                                                                Or pick a popular
+                                                                song:
+                                                            </h4>
+                                                            <RovingList
+                                                                items={
+                                                                    COMMON_KARAOKE_QUERIES
+                                                                }
+                                                                getKey={(q) =>
+                                                                    q.videoId
+                                                                }
+                                                                onActivate={(
+                                                                    q
+                                                                ) =>
+                                                                    handleCommonQueryPick(
+                                                                        q.query
+                                                                    )
+                                                                }
+                                                                className="space-y-2"
+                                                                renderItem={(
+                                                                    q,
+                                                                    _i,
+                                                                    {
+                                                                        itemProps,
+                                                                        isFocused,
+                                                                    }
+                                                                ) => (
+                                                                    <div
+                                                                        {
+                                                                            ...itemProps
+                                                                        }
+                                                                        role="button"
+                                                                        data-testid="common-query"
+                                                                        onClick={() =>
+                                                                            handleCommonQueryPick(
+                                                                                q.query
+                                                                            )
+                                                                        }
+                                                                        className={
+                                                                            "flex items-center gap-3 rounded-lg p-3 border transition-colors " +
+                                                                            (isFocused
+                                                                                ? "border-purple-400 bg-gray-700/90 ring-2 ring-purple-400"
+                                                                                : "border-gray-700 bg-gray-700/70 hover:bg-gray-700/90 focus-within:bg-gray-700/90")
+                                                                        }
+                                                                    >
+                                                                        <Music className="h-5 w-5 text-purple-300 shrink-0" />
+                                                                        <div className="flex flex-col min-w-0">
+                                                                            <p className="text-sm font-medium text-white truncate">
+                                                                                {
+                                                                                    q.title
+                                                                                }
+                                                                            </p>
+                                                                            <p className="text-xs text-gray-300 truncate">
+                                                                                {
+                                                                                    q.artist
+                                                                                }
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -2030,10 +2176,23 @@ export default function Room() {
                                         {queueCombined.length > 0 ? (
                                             <div className="space-y-3 p-3">
                                                 <AnimatePresence>
-                                                    {queueCombined.map(
-                                                        (song, index) => (
+                                                    <RovingList
+                                                        items={queueCombined}
+                                                        getKey={(song, index) =>
+                                                            `${song.id}-${index}`
+                                                        }
+                                                        className="space-y-3"
+                                                        renderItem={(
+                                                            song,
+                                                            index,
+                                                            {
+                                                                itemProps,
+                                                                isFocused,
+                                                            }
+                                                        ) => (
                                                             <motion.div
-                                                                key={`${song.id}-${index}`}
+                                                                {...itemProps}
+                                                                role="listitem"
                                                                 initial={{
                                                                     opacity: 0,
                                                                     x: 20,
@@ -2046,7 +2205,12 @@ export default function Room() {
                                                                     opacity: 0,
                                                                     x: -20,
                                                                 }}
-                                                                className="flex items-center bg-gray-700/70 hover:bg-gray-700/90 rounded-lg p-2 group w-full transition-colors border border-gray-700"
+                                                                className={
+                                                                    "flex items-center bg-gray-700/70 rounded-lg p-2 w-full transition-colors border group " +
+                                                                    (isFocused
+                                                                        ? "border-purple-400 bg-gray-700/90 ring-2 ring-purple-400"
+                                                                        : "border-gray-700 hover:bg-gray-700/90 focus-within:bg-gray-700/90")
+                                                                }
                                                             >
                                                                 <div className="flex-shrink-0 mr-2 relative">
                                                                     <div className="absolute -top-1 -left-1 w-5 h-5 flex items-center justify-center bg-purple-600 rounded-full text-xs font-medium border border-gray-700 shadow-md">
@@ -2099,7 +2263,8 @@ export default function Room() {
                                                                                         song.addedBy
                                                                                     )
                                                                                 }
-                                                                                className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 hover:bg-red-500/20 shrink-0 h-6 w-6 p-0 rounded-full ml-1 transition-all"
+                                                                                aria-label="Remove song from queue"
+                                                                                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-red-400 hover:text-red-300 hover:bg-red-500/20 shrink-0 h-6 w-6 p-0 rounded-full ml-1 transition-all"
                                                                             >
                                                                                 <Trash2 className="h-3 w-3" />
                                                                             </Button>
@@ -2107,8 +2272,8 @@ export default function Room() {
                                                                     </div>
                                                                 </div>
                                                             </motion.div>
-                                                        )
-                                                    )}
+                                                        )}
+                                                    />
                                                 </AnimatePresence>
                                             </div>
                                         ) : (
