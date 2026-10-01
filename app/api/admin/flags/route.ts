@@ -21,11 +21,7 @@ import { rtdb } from "@/lib/firebase";
 
 export const runtime = "nodejs";
 
-const ALLOWED_KEYS = [
-    "phoneMicEnabled",
-    "scorerEnabled",
-    "createRoomModalEnabled",
-] as const;
+const ALLOWED_KEYS = ["phoneMicEnabled", "scorerEnabled"] as const;
 type FlagKey = (typeof ALLOWED_KEYS)[number];
 type FlagsPayload = Record<FlagKey, boolean>;
 
@@ -60,8 +56,15 @@ export async function GET(request: Request) {
     }
     try {
         const snap = await get(ref(rtdb, "config/flags"));
-        const flags = snap && typeof snap.val === "function" ? snap.val() : null;
-        return NextResponse.json(flags ?? {}, { status: 200 });
+        const raw = snap && typeof snap.val === "function" ? snap.val() : null;
+        // Strip any stale createRoomModalEnabled from older payloads.
+        const stripped = raw && typeof raw === "object"
+            ? {
+                  phoneMicEnabled: !!(raw as Record<string, unknown>).phoneMicEnabled,
+                  scorerEnabled: !!(raw as Record<string, unknown>).scorerEnabled,
+              }
+            : {};
+        return NextResponse.json(stripped, { status: 200 });
     } catch {
         return NextResponse.json({}, { status: 200 });
     }

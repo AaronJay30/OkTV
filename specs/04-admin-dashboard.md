@@ -112,7 +112,6 @@ config/
   flags/
     phoneMicEnabled: boolean      // default true
     scorerEnabled: boolean        // default true
-    createRoomModalEnabled: boolean // default true
   keyStats/
     <slot>:                       // e.g. "1", "2", ... "legacy"
       last4: string               // masked key tail for display
@@ -159,6 +158,11 @@ operational concern.
   runtime-editable via admin). Defaults are permissive (all on) if
   `config/flags` is absent, so the app works identically before any admin
   ever visits the dashboard.
+- **Two real flags:** `phoneMicEnabled` and `scorerEnabled`. The
+  create-room modal is **not a flag** — it's derived: shown when at
+  least one feature is on, skipped when both are off. (Originally
+  specced as a third manual toggle; dropped because the derived rule
+  covers every case anyone actually wanted.)
 - **Client hides the UI reactively.** A small `hooks/use-flags.ts`
   subscribes to `config/flags` via `onValue`; components
   (`room-service`, `high-scores`, the create-room flow) read flags
@@ -169,16 +173,11 @@ operational concern.
   the **RTDB security rules** level:
   - `scorerEnabled` off → rules deny writes to `rooms/{id}/scores`.
   - `phoneMicEnabled` off → rules deny writes to `rooms/{id}/micSignal`.
-  - `createRoomModalEnabled` off is **inherently cosmetic** — there is
-    no data path to protect, only a UI affordance. A determined user
-    could navigate to `/room/xyz` directly. This is documented as a
-    known limitation; it is the intended guarantee of this flag.
-- **Skip-modal behavior:** when a user clicks "Create Room," the
-  `CreateRoomModal` checks flags. If `createRoomModalEnabled` is off,
-  OR if **all** feature flags (`phoneMicEnabled`, `scorerEnabled`,
-  `createRoomModalEnabled`) are off, the modal is skipped entirely and
-  the room is created directly with default settings. This removes
-  friction for users who don't want to configure anything.
+- **Skip-modal behavior:** when a user clicks "Create Room," the home
+  page checks flags via `shouldSkipCreateRoomModal`. If both feature
+  flags are off, the modal is skipped and the room is created directly
+  with defaults. This removes friction for users who don't want to
+  configure anything.
 
 ## 8. Admin UI (multi-page, one feature per page)
 
@@ -195,22 +194,21 @@ feature is its own page:
 
 ### Features page detail
 
-Each flag is rendered as a **rounded card** (not a switch in a list). The
-cards live in a single-column responsive grid.
+Two cards (phone mic, scorer). The create-room modal is not a manual
+toggle — see §7.
 
 - **Card layout (asymmetric):**
   - Left ~20% width: feature icon (lucide-react: `Mic2` for phone-as-mic,
-    `Star` for scorer, `PlusSquare` for create-room modal).
+    `Star` for scorer).
   - Right ~80% width: feature name (top) + one-line description (below).
   - Top-right of card: a radio-style enabled/disabled indicator
     (filled dot = enabled, hollow dot = disabled, plus label text).
   - Clicking anywhere on the card toggles the flag.
 - **Search box** at the top of the page filters cards by name or
-  description. Useful as features grow; not strictly needed at 3 items
-  but free to add and prevents future layout churn.
+  description. Free to keep; cheap.
 - **Add-a-feature affordance** is intentionally absent — features are
   defined in code, not via the admin UI. Adding a feature is a code
-  change. The search box is for navigation, not authoring.
+  change.
 
 ### Keys page detail
 

@@ -37,11 +37,9 @@ export default function Home() {
     const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
     const [scorerEnabled, setScorerEnabled] = useState(false); // New state for scorer feature
 
-    // Spec 04 §7: when createRoomModalEnabled is off OR when all
-    // feature flags are off, skip the dialog entirely and create
-    // the room directly. Reading the flag once at render time is
-    // fine — toggling flags and immediately re-creating isn't a
-    // supported flow.
+    // Spec 04 §7: skip the create-room modal whenever the user has
+    // no features to configure. The modal-vs-skip behavior is fully
+    // derived from the two real feature flags (phone mic + scorer).
     const { flags } = useFlags();
     const skipModal = shouldSkipCreateRoomModal(flags);
 

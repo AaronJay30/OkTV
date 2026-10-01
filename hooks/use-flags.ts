@@ -26,7 +26,6 @@ import { useFirebaseValue } from "@/lib/firebase-hooks";
 export interface Flags {
     phoneMicEnabled: boolean;
     scorerEnabled: boolean;
-    createRoomModalEnabled: boolean;
 }
 
 // Default to permissive (all true). Applied when RTDB has no value
@@ -35,7 +34,6 @@ export interface Flags {
 const DEFAULTS: Flags = {
     phoneMicEnabled: true,
     scorerEnabled: true,
-    createRoomModalEnabled: true,
 };
 
 function normalize(raw: unknown): Flags {
@@ -46,10 +44,6 @@ function normalize(raw: unknown): Flags {
             typeof r.phoneMicEnabled === "boolean" ? r.phoneMicEnabled : true,
         scorerEnabled:
             typeof r.scorerEnabled === "boolean" ? r.scorerEnabled : true,
-        createRoomModalEnabled:
-            typeof r.createRoomModalEnabled === "boolean"
-                ? r.createRoomModalEnabled
-                : true,
     };
 }
 
@@ -62,12 +56,14 @@ export function useFlags(): { flags: Flags; loading: boolean } {
 }
 
 /**
- * Pure helper exported for tests / non-React callers. Mirrors the spec:
- * "if createRoomModalEnabled is off OR if ALL feature flags are off,
- * the modal is skipped."
+ * Pure helper exported for tests / non-React callers.
+ *
+ * Per spec §7: skip the create-room modal whenever the user has no
+ * features to configure — i.e., both phone mic and scorer are off.
+ * (A standalone createRoomModalEnabled flag was originally specced,
+ * but the modal-vs-skip behavior is fully derived from the two real
+ * feature flags, so the manual toggle was removed.)
  */
 export function shouldSkipCreateRoomModal(flags: Flags): boolean {
-    if (!flags.createRoomModalEnabled) return true;
-    if (!flags.phoneMicEnabled && !flags.scorerEnabled) return true;
-    return false;
+    return !flags.phoneMicEnabled && !flags.scorerEnabled;
 }
