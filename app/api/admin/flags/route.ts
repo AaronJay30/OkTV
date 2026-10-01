@@ -1,0 +1,107 @@
+// app/api/admin/flags/route.ts
+//
+// GET  /api/admin/flags — read current flags (auth-required).
+// PUT  /api/admin/flags — replace flags with the body (auth-required).
+//
+// Body shape:
+//   {
+//     phoneMicEnabled: boolean,
+//     scorerEnabled: boolean,
+//     createRoomModalEnabled: boolean
+//   }
+//
+// Any field not present is rejected — flag writes are an explicit
+// "set all three" operation so we don't end up with half-updated
+// state from a partial payload.
+
+import { NextResponse } from "next/server";
+import { ref, get, set } from "firebase/database";
+import { requireAdmin } from "@/lib/admin-auth";
+import { rtdb } from "@/lib/firebase";
+
+export const runtime = "nodejs";
+
+const ALLOWED_KEYS = [
+    "phoneMicEnabled",
+    "scorerEnabled",
+    "createRoomModalEnabled",
+] as const;
+type FlagKey = (typeof ALLOWED_KEYS)[number];
+type FlagsPayload = Record<FlagKey, boolean>;
+
+function isFlagsPayload(v: unknown): v is FlagsPayload {
+    if (!v || typeof v !== "object") return false;
+    const r = v as Record<string, unknown>;
+    return ALLOWED_KEYS.every((k) => typeof r[k] === "boolean");
+}
+
+function cookieBagFromRequest(request: Request) {
+    const raw = request.headers.get("cookie") ?? "";
+    const map = new Map<string, { value: string }>();
+    for (const part of raw.split(/;\s*/)) {
+        if (!part) continue;
+        const eq = part.indexOf("=");
+        if (eq < 0) continue;
+        const k = part.slice(0, eq).trim();
+        const v = part.slice(eq + 1).trim();
+        if (k) map.set(k, { value: decodeURIComponent(v) });
+    }
+    return { get: (name: string) => map.get(name) };
+}
+
+export async function GET(request: Request) {
+    const guard = requireAdmin({
+        cookies: cookieBagFromRequest(request),
+        headers: request.headers,
+        method: "GET",
+    });
+    if (!guard.ok) {
+        return NextResponse.json({}, { status: guard.status });
+    }
+    try {
+        const snap = await get(ref(rtdb, "config/flags"));
+        const flags = snap && typeof snap.val === "function" ? snap.val() : null;
+        return NextResponse.json(flags ?? {}, { status: 200 });
+    } catch {
+        return NextResponse.json({}, { status: 200 });
+    }
+}
+
+export async function PUT(request: Request) {
+    const guard = requireAdmin({
+        cookies: cookieBagFromRequest(request),
+        headers: request.headers,
+        method: "PUT",
+    });
+    if (!guard.ok) {
+        return NextResponse.json({}, { status: guard.status });
+    }
+
+    let body: unknown;
+    try {
+        body = await request.json();
+    } catch {
+        return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    if (!isFlagsPayload(body)) {
+        return NextResponse.json(
+            {
+                error: `Body must contain boolean values for: ${ALLOWED_KEYS.join(", ")}`,
+            },
+            { status: 400 }
+        );
+    }
+
+    try {
+        await set(ref(rtdb, "config/flags"), body);
+        return NextResponse.json(body, { status: 200 });
+    } catch (e) {
+        console.error("flags PUT failed", e);
+        return NextResponse.json(
+            { error: "Failed to write flags" },
+            { status: 500 }
+        );
+    }
+}
+
+export type { FlagsPayload };
