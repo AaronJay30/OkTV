@@ -10,9 +10,8 @@
 // Both gates fail closed. The rendered login UI replaces the children
 // when unauthenticated.
 //
-// Note: at v0 there are no other admin routes. Once we add /features,
-// /keys, etc., they'll inherit this layout automatically — the layout
-// never has to change.
+// When authenticated, the layout renders a sidebar nav (Analytics /
+// Features / Rooms / Audit) wrapping the page content.
 
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
@@ -23,6 +22,12 @@ import {
     verifyAdminToken,
 } from "@/lib/admin-auth";
 import { AdminAuthGate } from "./admin-auth-gate";
+import { AdminSidebarNav } from "./admin-sidebar-nav";
+import {
+    SidebarProvider,
+    SidebarInset,
+    SidebarTrigger,
+} from "@/components/ui/sidebar";
 
 export const dynamic = "force-dynamic";
 
@@ -33,18 +38,11 @@ interface LayoutProps {
 
 export default function AdminLayout({ children, params }: LayoutProps) {
     // Spec §4.3: path gate first.
-    // Internal hit (the dynamic segment) sees /<slice>/<whatever>; the
-    // URL the user typed in the browser matches `params.adminPath`.
-    // We compare to ADMIN_PATH_SLICE — defaults to console-0724.
     if (params.adminPath !== getAdminPathSlice()) {
         notFound();
     }
 
-    // Path matches — we're inside the admin area. Now check auth.
     if (getAdminConfigError()) {
-        // Layer 2 fail: admin isn't configured. Render a clear message.
-        // Spec says return 503 on the API. On the page, we just show
-        // a setup-needed panel and refuse to render protected children.
         return (
             <AdminAuthGate mode="not-configured">
                 <>{children}</>
@@ -57,6 +55,7 @@ export default function AdminLayout({ children, params }: LayoutProps) {
     const verify = verifyAdminToken(tokenCookie?.value);
 
     if (!verify.ok) {
+        // No sidebar in unauthenticated state — the login form is full-screen.
         return (
             <AdminAuthGate mode="login">
                 <>{children}</>
@@ -64,5 +63,19 @@ export default function AdminLayout({ children, params }: LayoutProps) {
         );
     }
 
-    return <>{children}</>;
+    return (
+        <SidebarProvider>
+            <AdminSidebarNav />
+            <SidebarInset>
+                {/* Mobile: hamburger trigger sits at the top-left edge
+                    of every admin page. On desktop the sidebar is open
+                    so the trigger also works as an "open/close" handle. */}
+                <header className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-gray-800/60 bg-gray-900/60 px-3 backdrop-blur md:hidden">
+                    <SidebarTrigger className="text-gray-300 hover:text-white" />
+                    <span className="text-sm text-gray-400">Menu</span>
+                </header>
+                <>{children}</>
+            </SidebarInset>
+        </SidebarProvider>
+    );
 }
