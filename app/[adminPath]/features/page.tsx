@@ -147,7 +147,7 @@ export default function FeaturesPage() {
                     Loading…
                 </div>
             ) : (
-                <ul className="grid grid-cols-1 gap-3 max-w-2xl">
+                <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {filtered.map((f) => {
                         const enabled = flags[f.key];
                         const isSaving = saving === f.key;
