@@ -98,6 +98,68 @@
   }
 }
 
+/* =============================================================================
+   TV Remote Navigation (Spec 3)
+   ============================================================================= */
+
+/* Visible focus ring for keyboard / D-pad users. Mouse users still get the
+   default browser behavior because we use :focus-visible. */
+:focus-visible {
+  outline: 3px solid #a78bfa;
+  outline-offset: 3px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 6px rgba(167, 139, 250, 0.25);
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+[role="tab"]:focus-visible {
+  transform: scale(1.04);
+  transition: transform 120ms ease-out;
+}
+
+/* Honor reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  [role="tab"]:focus-visible {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* TV / coarse-pointer overrides. Fires on Android TV remotes, kiosks,
+   and any device that has no fine pointer (mouse/trackpad). */
+@media (pointer: coarse) and (min-width: 1280px) {
+  :root {
+    --tv-scale: 1.125;
+  }
+  body {
+    font-size: calc(1rem * 1.125);
+  }
+  /* Force ≥48px hit targets on common controls. */
+  button,
+  [role="button"],
+  [role="tab"],
+  input,
+  select,
+  textarea {
+    min-height: 48px;
+  }
+  /* Bump thumbnails in lists. */
+  .tv-thumb {
+    width: 5.5rem;
+    height: 4rem;
+  }
+  /* Stop the page from overflowing horizontally on a 1920x1080 TV. */
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
+
 .animate-pulse-slow {
   animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
