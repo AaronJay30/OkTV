@@ -25,6 +25,9 @@ yarn-error.log*
 *.jks
 key.properties
 
+# Bubblewrap / Android build output (contains a keystore copy + APKs)
+android-build/
+
 # vercel
 .vercel
 
