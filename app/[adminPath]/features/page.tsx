@@ -55,22 +55,38 @@ function getCsrfCookie(): string | null {
 export default function FeaturesPage() {
     const { toast } = useToast();
     const [flags, setFlags] = useState<Flags | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [saving, setSaving] = useState<keyof Flags | null>(null);
 
     useEffect(() => {
         let alive = true;
         fetch("/api/admin/flags", { credentials: "include" })
-            .then((r) => (r.ok ? (r.json() as Promise<Partial<Flags>>) : ({} as Partial<Flags>)))
+            .then((r) =>
+                r.ok
+                    ? (r.json() as Promise<Partial<Flags>>)
+                    : Promise.reject(
+                          new Error(`Server returned ${r.status}`)
+                      )
+            )
             .then((data) => {
                 if (!alive) return;
                 setFlags({
                     phoneMicEnabled: !!data?.phoneMicEnabled,
                     scorerEnabled: !!data?.scorerEnabled,
                 });
+                setLoadError(null);
             })
-            .catch(() => {
-                /* tolerate — RTDB may be empty; defaults still apply */
+            .catch((e) => {
+                // SPEC HONESTY: this catch previously returned an empty
+                // object, which the page rendered as 'all flags disabled'.
+                // That was a silent data-loss bug — toggles appeared to
+                // persist while the server actually failed to read them.
+                // Surface the failure so the user can fix RTDB rules.
+                if (!alive) return;
+                setLoadError(
+                    e instanceof Error ? e.message : "Failed to load flags"
+                );
             });
         return () => {
             alive = false;
@@ -141,7 +157,19 @@ export default function FeaturesPage() {
                 />
             </header>
 
-            {flags === null ? (
+            {loadError ? (
+                <div className="max-w-2xl p-4 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300">
+                    <p className="font-semibold mb-1">Could not load flags</p>
+                    <p className="text-sm text-red-200/80">
+                        {loadError}. The most common cause is RTDB rules
+                        blocking reads. Update your Firebase rules so{" "}
+                        <code className="bg-gray-800 px-1 rounded">
+                            /config/flags
+                        </code>{" "}
+                        is publicly readable, then refresh.
+                    </p>
+                </div>
+            ) : flags === null ? (
                 <div className="flex items-center gap-2 text-gray-400">
                     <LoaderIcon className="h-4 w-4 animate-spin" />
                     Loading…
