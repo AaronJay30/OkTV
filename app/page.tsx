@@ -19,12 +19,6 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useFlags, shouldSkipCreateRoomModal } from "@/hooks/use-flags";
 
 export default function Home() {
@@ -299,29 +293,14 @@ export default function Home() {
                         {flags.phoneMicEnabled && (
                             <div className="flex items-center justify-between">
                                 <div className="space-y-0.5">
-                                    {" "}
                                     <Label
                                         htmlFor="micFeature"
                                         className="text-white flex items-center"
                                     >
-                                        {" "}
-                                        Phone as Microphone{" "}
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
-                                                        BETA
-                                                    </span>
-                                                </TooltipTrigger>
-                                                <TooltipContent className="bg-gray-800 text-white border-gray-700">
-                                                    <p>
-                                                        This feature is still in
-                                                        testing and may not work
-                                                        as expected.
-                                                    </p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
+                                        Phone as Microphone
+                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
+                                            BETA
+                                        </span>
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Allow users to use their phones as
@@ -331,7 +310,6 @@ export default function Home() {
                                 <Switch
                                     id="micFeature"
                                     checked={micFeatureEnabled}
-                                    disabled={true}
                                     onCheckedChange={setMicFeatureEnabled}
                                     className="data-[state=checked]:bg-purple-500"
                                 />
@@ -340,30 +318,14 @@ export default function Home() {
                         {flags.scorerEnabled && (
                             <div className="flex items-center justify-between">
                                 <div className="space-y-0.5">
-                                    {" "}
                                     <Label
                                         htmlFor="scorerEnabled"
                                         className="text-white flex items-center"
                                     >
-                                        {" "}
-                                        Karaoke Scorer{" "}
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
-                                                        BETA
-                                                    </span>
-                                                </TooltipTrigger>
-                                                <TooltipContent className="bg-gray-800 text-white border-gray-700">
-                                                    <p>
-                                                        Scores are randomly
-                                                        generated and may not
-                                                        reflect actual
-                                                        performance.
-                                                    </p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
+                                        Karaoke Scorer
+                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
+                                            BETA
+                                        </span>
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Display a random score after each song
