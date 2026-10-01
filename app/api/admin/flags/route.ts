@@ -100,8 +100,19 @@ export async function PUT(request: Request) {
         return NextResponse.json(body, { status: 200 });
     } catch (e) {
         console.error("flags PUT failed", e);
+        // NOTE: this is the most common failure mode — RTDB rules reject
+        // writes to /config/flags. The spec tracks this gap at §7.1:
+        // RTDB rules can't see HMAC cookies, so the server-side auth
+        // check here passes but Firebase refuses the write.
+        //
+        // Quick fix (until Admin SDK is wired): in Firebase Console,
+        // change the rules so /config/flags is writable. See §7.1.
         return NextResponse.json(
-            { error: "Failed to write flags" },
+            {
+                error: "Failed to write flags",
+                hint: "RTDB rules may be blocking. See specs/04-admin-dashboard.md §7.1.",
+                detail: e instanceof Error ? e.message : String(e),
+            },
             { status: 500 }
         );
     }

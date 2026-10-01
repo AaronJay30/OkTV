@@ -179,6 +179,49 @@ operational concern.
   with defaults. This removes friction for users who don't want to
   configure anything.
 
+### 7.1 RTDB rules gap (known limitation)
+
+The original spec said flag writes would be "enforced by RTDB rules."
+That's wrong as written — **RTDB rules can only see Firebase Auth
+context (`auth.uid`, custom claims), not custom HMAC cookies**. There is
+no rule expression that says "allow write if the oktv_admin HMAC cookie
+is valid." So the admin API's auth check passes, then Firebase refuses
+the write.
+
+**Workaround (in place now):** in Firebase Console → Realtime Database →
+Rules, allow writes to `/config/flags`:
+
+```json
+{
+  "rules": {
+    "config": {
+      ".read": "auth != null",
+      "flags": {
+        ".write": true
+      }
+    },
+    "rooms": { ... }
+  }
+}
+```
+
+**Tradeoff:** any unauthenticated client with your database URL can
+flip the flags. The secret admin path + HMAC cookie still protect the
+admin UI, but RTDB is a public-readable DB so writes are not gated.
+For a single-admin hobby app this is acceptable; the worst-case attack
+is "someone disables features on your app for a few minutes."
+
+**Proper fix (deferred — option C in design):** add Firebase Admin SDK
++ service account credentials. Admin SDK bypasses rules entirely (it
+authenticates as the project's service account, not as a client).
+Implementation needs `FIREBASE_SERVICE_ACCOUNT_JSON` env var with the
+service-account key file content, plus replacing `rtdb` imports in
+admin routes with `admin.database()`. Real work — needs ~30 min of
+careful implementation + .env updates + spec amendments.
+
+This gap is the most important thing on the "follow-up" list for this
+slice.
+
 ## 8. Admin UI (multi-page, one feature per page)
 
 Layout: `app/[adminPath]/` with a shared sidebar/tab nav. Each discussed
