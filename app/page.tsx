@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Music, Mic, Users, Play, Loader2 } from "lucide-react";
+import { Music, Mic, Users, Play, Loader2, Tv, Download } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { checkRoomExists, createRoom } from "@/lib/firebase-service";
@@ -204,6 +204,34 @@ export default function Home() {
                         </motion.div>
                     )}{" "}
                 </div>
+
+                {/* Spec 3: Android TV / Google TV download */}
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.5, duration: 0.5 }}
+                    className="mt-8 pt-6 border-t border-gray-800"
+                >
+                    <a
+                        href="/oktv-tv.apk"
+                        download="oktv-tv.apk"
+                        aria-label="Download OKtv for Android TV"
+                        className="group flex items-center justify-between gap-3 w-full px-4 py-3 rounded-lg bg-gray-800/60 hover:bg-gray-800 border border-gray-700 hover:border-purple-500 transition-colors"
+                    >
+                        <span className="flex items-center gap-3 min-w-0">
+                            <Tv className="h-5 w-5 text-purple-400 shrink-0" />
+                            <span className="flex flex-col items-start min-w-0">
+                                <span className="text-sm font-medium text-gray-200 group-hover:text-white truncate">
+                                    Download for Android TV / Google TV
+                                </span>
+                                <span className="text-xs text-gray-400 truncate">
+                                    Sideloadable APK · works with D-pad remote
+                                </span>
+                            </span>
+                        </span>
+                        <Download className="h-4 w-4 text-gray-400 group-hover:text-purple-400 shrink-0" />
+                    </a>
+                </motion.div>
             </motion.div>
 
             <motion.div

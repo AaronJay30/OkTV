@@ -22,7 +22,7 @@ const path = require("path");
 
 const manifestPath = path.join(
     process.cwd(),
-    "android",
+    "android-build",
     "app",
     "src",
     "main",
@@ -54,19 +54,19 @@ if (!xml.includes("android.software.leanback")) {
 }
 
 // 2. Add a second intent-filter with LEANBACK_LAUNCHER on the main activity.
-//    We rely on the activity name "com.google.androidbrowserhelper.trusted.
-    //    LauncherActivity" which is what Bubblewrap generates.
+//    Bubblewrap uses both `LauncherActivity` (short name) and the fully-qualified
+//    `com.google.androidbrowserhelper.trusted.LauncherActivity` depending on the
+//    version. Match either.
 const altFilter = `
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-        </intent-filter>
-    `;
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+`;
 
 xml = xml.replace(
-    /(<activity\s+android:name="com\.google\.androidbrowserhelper\.trusted\.LauncherActivity"[^>]*>)([\s\S]*?)(<\/activity>)/,
-    (m, open, body, close) => `${open}${body}${altFilter}${close}`
+    /(<activity\s+android:name="(?:com\.google\.androidbrowserhelper\.trusted\.)?LauncherActivity"[^>]*>)([\s\S]*?)(<\/activity>)/,
 );
 
 fs.writeFileSync(manifestPath, xml);

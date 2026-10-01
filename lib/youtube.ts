@@ -27,33 +27,6 @@ export interface YouTubeSearchResult {
     };
 }
 
-// Using environment variable for API key
-// Make sure to add YOUTUBE_API_KEY to your .env.local file
-const API_KEY = process.env.YOUTUBE_API_KEY || "YOUR_YOUTUBE_API_KEY";
-
-export async function searchYouTube(
-    query: string
-): Promise<YouTubeSearchResult[]> {
-    try {
-        const response = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=30&q=${encodeURIComponent(
-                query + " karaoke"
-            )}&type=video&videoEmbeddable=true&key=${API_KEY}`
-        );
-        if (!response.ok) {
-            console.error(`YouTube API error: ${response.status}`);
-            throw new Error(`YouTube API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data.items;
-    } catch (error) {
-        console.error("Error searching YouTube:", error);
-        // Fallback to mock data if API fails
-        return getMockSearchResults(query);
-    }
-}
-
 // Mock data function for development or when API key is not available
 function getMockSearchResults(query: string): YouTubeSearchResult[] {
     const allResults = [
