@@ -2,6 +2,8 @@
 // with automatic key rotation. Used by /api/youtube/search and
 // /api/youtube/enrich.
 
+import type { KeySlotStats } from "./youtube-rotating-key-types";
+
 const QUOTA_REASONS = new Set([
     "quotaExceeded",
     "rateLimitExceeded",
@@ -157,8 +159,6 @@ export async function withRotatingKey<T>(
 // In-memory counters per key slot. Process-local. Lost on restart (we
 // persist a snapshot to RTDB every ~60s; spec calls for re-seed from
 // RTDB on boot, deferred to a follow-up).
-
-import type { KeySlotStats } from "./youtube-rotating-key-types";
 
 const slotStats = new Map<string, KeySlotStats>();
 

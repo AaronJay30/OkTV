@@ -3,6 +3,7 @@ import {
     withRotatingKey,
     type RotatingKeyResult,
 } from "@/lib/youtube-rotating-key";
+import { ENDPOINT_QUOTA_COSTS } from "@/lib/youtube-rotating-key-types";
 
 /**
  * GET /api/youtube/enrich?ids=<id1>,<id2>,...
@@ -156,7 +157,8 @@ export async function GET(request: NextRequest) {
                 ok: true as const,
                 data: { items },
             };
-        }
+        },
+        ENDPOINT_QUOTA_COSTS.videos // videos.list = 1 quota unit per call
     );
 
     if (result.ok) {
