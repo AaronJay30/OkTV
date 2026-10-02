@@ -83,9 +83,15 @@ export type RotatingKeyResult<T> =
  * successful response, or `{ ok: false, status: 429, body: QUOTA_EXHAUSTED }`
  * when every key returns a quota-class error. Non-quota failures short-circuit
  * and return immediately.
+ *
+ * `quotaCost` is the number of quota units this call spends against the
+ * project's daily YouTube Data API v3 budget. Callers pass it explicitly
+ * (search=100, videos=1, etc.) so the admin stats page can show real
+ * burn rate. Defaults to 1.
  */
 export async function withRotatingKey<T>(
-    call: (apiKey: string) => Promise<CallOutput<T>>
+    call: (apiKey: string) => Promise<CallOutput<T>>,
+    quotaCost: number = 1
 ): Promise<RotatingKeyResult<T>> {
     const keys = loadApiKeys();
 
@@ -118,13 +124,18 @@ export async function withRotatingKey<T>(
         const result = await call(key);
 
         if (result.ok) {
+            // Spec 04 §6: record units against this slot on success.
+            recordSlotSuccess(key, quotaCost);
             return { ok: true, data: result.data };
         }
 
         if (!isQuotaError(result.body)) {
+            // Non-quota failure: don't count units, don't poison the slot.
             return { ok: false, status: result.status, body: result.body };
         }
 
+        // Quota-class failure: mark this slot as exhausted-at timestamp.
+        recordSlotQuotaExhausted(key);
         console.warn(
             `[youtube] Key #${i + 1} of ${pool.length} hit a quota-class error. Rotating.`
         );
@@ -139,4 +150,77 @@ export async function withRotatingKey<T>(
                 "All configured YouTube API keys have exceeded their quota. Paste a direct YouTube link or Video ID to add a song.",
         },
     };
+}
+
+// ── Per-slot stats (spec 04 §6) ────────────────────────────────────────
+//
+// In-memory counters per key slot. Process-local. Lost on restart (we
+// persist a snapshot to RTDB every ~60s; spec calls for re-seed from
+// RTDB on boot, deferred to a follow-up).
+
+import type { KeySlotStats } from "./youtube-rotating-key-types";
+
+const slotStats = new Map<string, KeySlotStats>();
+
+function slotLabel(key: string): string {
+    // Legacy YOUTUBE_API_KEY is "legacy"; YOUTUBE_API_KEY_N is "N".
+    const all = loadApiKeys();
+    const idx = all.indexOf(key);
+    if (idx <= 0) return "legacy";
+    return String(idx);
+}
+
+function ensureSlot(key: string): KeySlotStats {
+    const label = slotLabel(key);
+    let s = slotStats.get(key);
+    if (!s) {
+        s = {
+            label,
+            last4: key.length >= 4 ? key.slice(-4) : key,
+            totalRequests: 0,
+            totalUnits: 0,
+            recent: [], // timestamps in last 24h
+            quotaExceededAt: null,
+        };
+        slotStats.set(key, s);
+    }
+    return s;
+}
+
+function recordSlotSuccess(key: string, quotaCost: number) {
+    const s = ensureSlot(key);
+    s.totalRequests += 1;
+    s.totalUnits += quotaCost;
+    s.recent.push(Date.now());
+    pruneRecent(s);
+}
+
+function recordSlotQuotaExhausted(key: string) {
+    const s = ensureSlot(key);
+    s.quotaExceededAt = Date.now();
+}
+
+function pruneRecent(s: KeySlotStats) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    while (s.recent.length > 0 && s.recent[0] < cutoff) {
+        s.recent.shift();
+    }
+}
+
+/**
+ * Read-only snapshot for the admin /keys page. Filters slots with zero
+ * activity so the table only shows keys that have been used.
+ */
+export function readSlotStats(): KeySlotStats[] {
+    const out: KeySlotStats[] = [];
+    for (const s of slotStats.values()) {
+        pruneRecent(s);
+        if (s.totalRequests > 0 || s.quotaExceededAt !== null) {
+            out.push({
+                ...s,
+                last24hRequests: s.recent.length,
+            });
+        }
+    }
+    return out;
 }
