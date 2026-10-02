@@ -238,6 +238,9 @@ feature is its own page:
 | Rooms | `/rooms` | Room table + delete + purge-old button |
 | Audit | `/audit` | Last 50 entries, newest first |
 
+**Post-login landing:** after successful auth, the layout redirects
+`/` to `/keys` (analytics is the primary operational view).
+
 ### Features page detail
 
 Two cards (phone mic, scorer). The create-room modal is not a manual
@@ -266,6 +269,13 @@ toggle — see §7.
   - Bar chart (optional v1.1): today's units per slot, side by side.
 - **Countdown:** "Quota resets at midnight Pacific — in Xh Ym".
 - No add/remove UI — keys are managed in env.
+
+**Implementation status (v1):** ships with table + progress bar +
+status indicator + reset countdown. The hourly line chart was
+**deferred** — `recent: number[]` is already exposed by
+`readSlotStats()`, so wiring a recharts line chart later is a small
+follow-up. RTDB snapshot persistence is also deferred (counters reset
+on server restart; documented on the empty state).
 
 ### Rooms page detail
 
@@ -399,3 +409,34 @@ app/api/admin/audit/route.ts         — GET
 hooks/use-flags.ts                   — client flag subscription
 components/admin/*                   — section components
 ```
+
+### 11.1 Implementation status
+
+| File | Status | Notes |
+|------|--------|-------|
+| `lib/admin-auth.ts` | ✅ Shipped | bcrypt compare + HMAC + CSRF + 5/min/IP rate limit |
+| `lib/youtube-rotating-key-types.ts` | ✅ Shipped | `KeySlotStats` + `ENDPOINT_QUOTA_COSTS` |
+| `lib/youtube-rotating-key.ts` (instrumented) | ✅ Shipped | Per-slot counters; `readSlotStats()` |
+| `app/api/youtube/search` + `enrich` | ✅ Updated | Pass explicit `quotaCost` |
+| `scripts/hash-password.cjs` | ✅ Shipped | Interactive stdin-based hash generator |
+| `app/api/admin/login/route.ts` | ✅ Shipped | Rate-limited bcrypt |
+| `app/api/admin/logout/route.ts` | ✅ Shipped | Cookie clear |
+| `app/[adminPath]/layout.tsx` | ✅ Shipped | Path + auth + sidebar gate |
+| `app/[adminPath]/admin-auth-gate.tsx` | ✅ Shipped | Login form + "not configured" panel |
+| `app/[adminPath]/admin-sidebar-nav.tsx` | ✅ Shipped | Brand header + nav + live/inactive styling |
+| `app/[adminPath]/admin-logout-button.tsx` | ✅ Shipped | Sidebar footer sign-out |
+| `app/[adminPath]/page.tsx` | ✅ Updated | `redirect()` to `/keys` |
+| `app/[adminPath]/features/page.tsx` | ✅ Shipped | Card grid + search + CSRF-aware toggle |
+| `app/[adminPath]/keys/page.tsx` | ✅ Shipped (v1) | Table + progress + status — chart deferred |
+| `app/api/admin/flags/route.ts` | ✅ Shipped | GET/PUT with `requireAdmin` |
+| `app/api/admin/keys/route.ts` | ✅ Shipped | Per-slot stats; no chart buckets yet |
+| `hooks/use-flags.ts` | ✅ Shipped | Subscribes to `config/flags`; `shouldSkipCreateRoomModal` |
+| `app/page.tsx` (modal gating) | ✅ Updated | Hides admin-disabled rows in modal |
+| `.env.example` | ✅ Updated | Admin vars documented |
+| RTDB rules in your Firebase Console | ⏸ **You do this** | See §7.1 |
+| `app/[adminPath]/rooms/page.tsx` | ❌ Not started | Spec §8 rooms |
+| `app/[adminPath]/audit/page.tsx` | ❌ Not started | Spec §8 audit |
+| `app/api/admin/rooms/*` + `audit/*` | ❌ Not started | |
+| Firebase Admin SDK + service account | ❌ Deferred (§7.1) | Proper RTDB rules fix |
+| RTDB snapshot persistence (60s writes) | ❌ Deferred (§10) | Process-local counters for v1 |
+| `chart.tsx` line chart on `/keys` | ❌ Deferred (§8.10) | `recent: number[]` is already exposed |
