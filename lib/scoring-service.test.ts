@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generatePerformanceScore } from "./scoring-service";
+import { generatePerformanceScore, getPerformanceRating } from "./scoring-service";
 
 describe("generatePerformanceScore", () => {
     it.each([
@@ -19,5 +19,13 @@ describe("generatePerformanceScore", () => {
             expect(score).toBeGreaterThanOrEqual(70);
             expect(score).toBeLessThanOrEqual(100);
         }
+    });
+});
+
+describe("getPerformanceRating", () => {
+    it("keeps the rating bands aligned with the score range", () => {
+        expect(getPerformanceRating(70)).toBe("Nice Performance!");
+        expect(getPerformanceRating(90)).toBe("Amazing Performance!");
+        expect(getPerformanceRating(95)).toBe("Outstanding!");
     });
 });
