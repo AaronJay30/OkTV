@@ -13,9 +13,11 @@ import {
     orderByChild,
     startAt,
     endAt,
+    runTransaction,
 } from "firebase/database";
 import { rtdb } from "./firebase";
 import type { Song, User, Score } from "@/types/room";
+import { roomIsIdle } from "@/lib/admin-room";
 
 // Function to check for and delete old rooms (more than 1 day old)
 export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
@@ -35,13 +37,7 @@ export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
         if (rooms.hasOwnProperty(roomId)) {
             const room = rooms[roomId];
 
-            if (!room.createdAt) {
-                continue;
-            }
-
-            // Parse the ISO string to a Date object for proper comparison
-            const roomCreatedAt = new Date(room.createdAt);
-            const isOld = roomCreatedAt < cutoffDate;
+            const isOld = roomIsIdle(room, cutoffDate.getTime());
 
             // Check if room is older than specified days
             if (isOld) {
@@ -100,6 +96,25 @@ export const checkRoomExists = async (roomId: string): Promise<boolean> => {
     return snapshot.exists();
 };
 
+/**
+ * SECURITY: idempotently seed the admin user into an existing room.
+ * Unlike createRoom, this does NOT overwrite room metadata, does NOT
+ * reset feature flags, and does NOT run cleanupOldRooms. Use this on
+ * admin re-mount / page reload when the room is already known to
+ * exist (e.g. created via the home page's create flow).
+ */
+export const seedAdminUser = async (
+    roomId: string,
+    adminUser: User
+): Promise<void> => {
+    const adminUserRef = ref(rtdb, `rooms/${roomId}/users/${adminUser.id}`);
+    await set(adminUserRef, {
+        name: adminUser.name,
+        isAdmin: adminUser.isAdmin,
+        joinedAt: new Date().toISOString(),
+    });
+};
+
 export const subscribeToRoom = (
     roomId: string,
     callback: (data: any) => void
@@ -121,35 +136,71 @@ export const addSongToQueue = async (
     song: Song // song is the clean object: { id, title, thumbnail, addedBy }
 ): Promise<string> => {
     const roomRef = ref(rtdb, `rooms/${roomId}`);
-    const roomSnapshot = await get(roomRef);
-    const roomData = roomSnapshot.val();
-
-    // Determine if this is the first song scenario
-    // It's the first song if there's no current song AND the queue is empty
-    const isFirstSongScenario =
-        !roomData?.currentSong &&
-        (!roomData?.queue || Object.keys(roomData.queue).length === 0);
-
-    // Add song to queue with Firebase key and timestamp
     const queueRef = ref(rtdb, `rooms/${roomId}/queue`);
     const newSongRef = push(queueRef);
+    const addedAt = new Date().toISOString();
     const songForQueue = {
         ...song,
         firebaseKey: newSongRef.key,
-        addedAt: new Date().toISOString(),
+        addedAt,
     };
-    await set(newSongRef, songForQueue);
 
-    // If it's the first song scenario, update currentSong and set isPlaying to true
-    if (isFirstSongScenario) {
-        await update(roomRef, {
-            currentSong: song, // Use the original clean 'song' object for currentSong
-            isPlaying: true,
-            // isMuted state is preserved, not changed here
-        });
-    }
+    const result = await runTransaction(roomRef, (room) => {
+        if (!room) return;
+        const queue = room.queue ?? {};
+        if (!room.currentSong && Object.keys(queue).length === 0) {
+            room.currentSong = songForQueue;
+            room.isPlaying = true;
+        } else {
+            room.queue = { ...queue, [newSongRef.key!]: songForQueue };
+        }
+        return room;
+    });
+    if (!result.committed) throw new Error("Room was unavailable while adding song");
 
     return newSongRef.key as string;
+};
+
+export const advanceRoomQueue = async (
+    roomId: string,
+    expectedCurrentSong?: Song
+): Promise<boolean> => {
+    const roomRef = ref(rtdb, `rooms/${roomId}`);
+    const result = await runTransaction(roomRef, (room) => {
+        if (!room) return;
+        const active = room.currentSong as Song | null;
+        if (expectedCurrentSong && (
+            !active ||
+            active.id !== expectedCurrentSong.id ||
+            (expectedCurrentSong.firebaseKey && active.firebaseKey !== expectedCurrentSong.firebaseKey)
+        )) return;
+
+        const queue = room.queue ?? {};
+        const entries = Object.entries(queue).sort(([, a], [, b]) => {
+            const aTime = Date.parse((a as Song).addedAt ?? "");
+            const bTime = Date.parse((b as Song).addedAt ?? "");
+            return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
+        });
+        // Older versions also stored the active song in queue without
+        // copying its Firebase key to currentSong. Drop that mirrored head.
+        if (active && !active.firebaseKey && (entries[0]?.[1] as Song | undefined)?.id === active.id) {
+            delete queue[entries[0][0]];
+            entries.shift();
+        }
+        const next = entries[0];
+        if (next) {
+            const [key, queuedSong] = next;
+            delete queue[key];
+            room.queue = queue;
+            room.currentSong = { ...(queuedSong as Song), firebaseKey: (queuedSong as Song).firebaseKey ?? key };
+            room.isPlaying = true;
+        } else {
+            room.currentSong = null;
+            room.isPlaying = false;
+        }
+        return room;
+    });
+    return result.committed;
 };
 
 export const removeSongFromQueue = async (

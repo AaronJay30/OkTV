@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withRotatingKey } from "@/lib/youtube-rotating-key";
+import { ENDPOINT_QUOTA_COSTS } from "@/lib/youtube-rotating-key-types";
 
 /**
  * GET /api/youtube/search?q=<query>
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
         }
 
         return { ok: false as const, status: response.status, body };
-    });
+    }, ENDPOINT_QUOTA_COSTS.search); // search.list = 100 quota units per call
 
     if (result.ok) {
         return NextResponse.json(result.data, { status: 200 });

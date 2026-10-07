@@ -2,6 +2,10 @@
 // with automatic key rotation. Used by /api/youtube/search and
 // /api/youtube/enrich.
 
+import type { KeySlotStats } from "./youtube-rotating-key-types";
+import { get, ref, set } from "firebase/database";
+import { rtdb } from "./firebase";
+
 const QUOTA_REASONS = new Set([
     "quotaExceeded",
     "rateLimitExceeded",
@@ -83,9 +87,15 @@ export type RotatingKeyResult<T> =
  * successful response, or `{ ok: false, status: 429, body: QUOTA_EXHAUSTED }`
  * when every key returns a quota-class error. Non-quota failures short-circuit
  * and return immediately.
+ *
+ * `quotaCost` is the number of quota units this call spends against the
+ * project's daily YouTube Data API v3 budget. Callers pass it explicitly
+ * (search=100, videos=1, etc.) so the admin stats page can show real
+ * burn rate. Defaults to 1.
  */
 export async function withRotatingKey<T>(
-    call: (apiKey: string) => Promise<CallOutput<T>>
+    call: (apiKey: string) => Promise<CallOutput<T>>,
+    quotaCost: number = 1
 ): Promise<RotatingKeyResult<T>> {
     const keys = loadApiKeys();
 
@@ -118,13 +128,18 @@ export async function withRotatingKey<T>(
         const result = await call(key);
 
         if (result.ok) {
+            // Spec 04 §6: record units against this slot on success.
+            recordSlotSuccess(key, quotaCost);
             return { ok: true, data: result.data };
         }
 
         if (!isQuotaError(result.body)) {
+            // Non-quota failure: don't count units, don't poison the slot.
             return { ok: false, status: result.status, body: result.body };
         }
 
+        // Quota-class failure: mark this slot as exhausted-at timestamp.
+        recordSlotQuotaExhausted(key);
         console.warn(
             `[youtube] Key #${i + 1} of ${pool.length} hit a quota-class error. Rotating.`
         );
@@ -139,4 +154,130 @@ export async function withRotatingKey<T>(
                 "All configured YouTube API keys have exceeded their quota. Paste a direct YouTube link or Video ID to add a song.",
         },
     };
+}
+
+// ── Per-slot stats (spec 04 §6) ────────────────────────────────────────
+//
+// In-memory counters per key slot. Process-local. Lost on restart (we
+// persist a snapshot to RTDB every ~60s; spec calls for re-seed from
+// RTDB on boot, deferred to a follow-up).
+
+const slotStats = new Map<string, KeySlotStats>();
+let restorePromise: Promise<void> | null = null;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function slotLabel(key: string): string {
+    // Legacy YOUTUBE_API_KEY is "legacy"; YOUTUBE_API_KEY_N is "N".
+    const all = loadApiKeys();
+    const idx = all.indexOf(key);
+    if (idx <= 0) return "legacy";
+    return String(idx);
+}
+
+function ensureSlot(key: string): KeySlotStats {
+    const label = slotLabel(key);
+    let s = slotStats.get(key);
+    if (!s) {
+        s = {
+            label,
+            last4: key.length >= 4 ? key.slice(-4) : key,
+            totalRequests: 0,
+            totalUnits: 0,
+            recent: [], // timestamps in last 24h
+            recentUnits: [],
+            quotaExceededAt: null,
+        };
+        slotStats.set(key, s);
+    }
+    return s;
+}
+
+function recordSlotSuccess(key: string, quotaCost: number) {
+    const s = ensureSlot(key);
+    s.totalRequests += 1;
+    s.totalUnits += quotaCost;
+    s.recent.push(Date.now());
+    s.recentUnits?.push({ at: Date.now(), units: quotaCost });
+    pruneRecent(s);
+    schedulePersist();
+}
+
+function recordSlotQuotaExhausted(key: string) {
+    const s = ensureSlot(key);
+    s.quotaExceededAt = Date.now();
+    schedulePersist();
+}
+
+function pruneRecent(s: KeySlotStats) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    while (s.recent.length > 0 && s.recent[0] < cutoff) {
+        s.recent.shift();
+    }
+    if (s.recentUnits) s.recentUnits = s.recentUnits.filter((item) => item.at >= cutoff);
+}
+
+function schedulePersist() {
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => { persistTimer = null; void persistSlotStats(); }, 60_000);
+}
+
+async function persistSlotStats() {
+    try {
+        await Promise.all(Array.from(slotStats.values()).map((s) => set(ref(rtdb, `config/keyStats/${s.label}`), {
+            last4: s.last4,
+            totalRequests: s.totalRequests,
+            totalUnits: s.totalUnits,
+            recent: s.recent,
+            recentUnits: s.recentUnits ?? [],
+            quotaExceededAt: s.quotaExceededAt,
+        })));
+    } catch { /* optional persistence must never break YouTube requests */ }
+}
+
+export async function restoreSlotStats(): Promise<void> {
+    if (restorePromise) return restorePromise;
+    restorePromise = (async () => {
+        try {
+            const snapshot = await get(ref(rtdb, "config/keyStats"));
+            const raw = snapshot.exists() ? snapshot.val() : {};
+            for (const [label, value] of Object.entries(raw && typeof raw === "object" ? raw : {})) {
+                const saved = value as Partial<KeySlotStats>;
+                const key = loadApiKeys()[label === "legacy" ? 0 : Number(label)];
+                if (!key || slotStats.has(key)) continue;
+                slotStats.set(key, {
+                    label,
+                    last4: typeof saved.last4 === "string" ? saved.last4 : key.slice(-4),
+                    totalRequests: Number(saved.totalRequests) || 0,
+                    totalUnits: Number(saved.totalUnits) || 0,
+                    recent: Array.isArray(saved.recent) ? saved.recent.filter((n): n is number => typeof n === "number") : [],
+                    recentUnits: Array.isArray(saved.recentUnits) ? saved.recentUnits as Array<{ at: number; units: number }> : [],
+                    quotaExceededAt: typeof saved.quotaExceededAt === "number" ? saved.quotaExceededAt : null,
+                });
+            }
+        } catch { /* best effort on boot */ }
+    })();
+    return restorePromise;
+}
+
+/**
+ * Read-only snapshot for the admin /keys page. Filters slots with zero
+ * activity so the table only shows keys that have been used.
+ */
+export function readSlotStats(): KeySlotStats[] {
+    const out: KeySlotStats[] = [];
+    for (const s of slotStats.values()) {
+        pruneRecent(s);
+        if (s.totalRequests > 0 || s.quotaExceededAt !== null) {
+            out.push({
+                ...s,
+                last24hRequests: s.recent.length,
+                hourly: Array.from({ length: 24 }, (_, index) => {
+                    const start = Date.now() - (24 - index) * 60 * 60 * 1000;
+                    const end = start + 60 * 60 * 1000;
+                    return (s.recentUnits ?? []).filter((item) => item.at >= start && item.at < end).reduce((sum, item) => sum + item.units, 0);
+                }),
+            });
+        }
+    }
+    return out;
 }

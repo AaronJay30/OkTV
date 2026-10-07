@@ -19,12 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useFlags, shouldSkipCreateRoomModal } from "@/hooks/use-flags";
 
 export default function Home() {
     const router = useRouter();
@@ -36,7 +31,18 @@ export default function Home() {
     const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
     const [scorerEnabled, setScorerEnabled] = useState(false); // New state for scorer feature
 
+    // Spec 04 §7: skip the create-room modal whenever the user has
+    // no features to configure. The modal-vs-skip behavior is fully
+    // derived from the two real feature flags (phone mic + scorer).
+    const { flags } = useFlags();
+    const skipModal = shouldSkipCreateRoomModal(flags);
+
     const handleCreateRoomClick = () => {
+        if (skipModal) {
+            // Spec §7: skip-modal — call createRoom with default (false) flags.
+            void handleCreateRoom();
+            return;
+        }
         setShowCreateDialog(true);
     };
 
@@ -284,88 +290,62 @@ export default function Home() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                {" "}
-                                <Label
-                                    htmlFor="micFeature"
-                                    className="text-white flex items-center"
-                                >
-                                    {" "}
-                                    Phone as Microphone{" "}
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
-                                                    BETA
-                                                </span>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="bg-gray-800 text-white border-gray-700">
-                                                <p>
-                                                    This feature is still in
-                                                    testing and may not work as
-                                                    expected. It may work
-                                                    intermittently or not at
-                                                    all.
-                                                </p>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                </Label>
-                                <p className="text-sm text-gray-400">
-                                    Allow users to use their phones as
-                                    microphones
-                                </p>
+                        {flags.phoneMicEnabled && (
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label
+                                        htmlFor="micFeature"
+                                        className="text-white flex items-center"
+                                    >
+                                        Phone as Microphone
+                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
+                                            BETA
+                                        </span>
+                                    </Label>
+                                    <p className="text-sm text-gray-400">
+                                        Allow users to use their phones as
+                                        microphones
+                                    </p>
+                                </div>
+                                <Switch
+                                    id="micFeature"
+                                    checked={micFeatureEnabled}
+                                    onCheckedChange={setMicFeatureEnabled}
+                                    className="data-[state=checked]:bg-purple-500"
+                                />
                             </div>
-                            <Switch
-                                id="micFeature"
-                                checked={micFeatureEnabled}
-                                disabled={true}
-                                onCheckedChange={setMicFeatureEnabled}
-                                className="data-[state=checked]:bg-purple-500"
-                            />
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                {" "}
-                                <Label
-                                    htmlFor="scorerEnabled"
-                                    className="text-white flex items-center"
-                                >
-                                    {" "}
-                                    Karaoke Scorer{" "}
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full cursor-help">
-                                                    BETA
-                                                </span>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="bg-gray-800 text-white border-gray-700">
-                                                <p>
-                                                    This feature is still in
-                                                    testing and may not work as
-                                                    expected. Scores are
-                                                    randomly generated and may
-                                                    not reflect actual
-                                                    performance.
-                                                </p>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                </Label>
-                                <p className="text-sm text-gray-400">
-                                    Display a random score after each song
-                                    performance
-                                </p>
+                        )}
+                        {flags.scorerEnabled && (
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label
+                                        htmlFor="scorerEnabled"
+                                        className="text-white flex items-center"
+                                    >
+                                        Karaoke Scorer
+                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
+                                            BETA
+                                        </span>
+                                    </Label>
+                                    <p className="text-sm text-gray-400">
+                                        Display a random score after each song
+                                        performance
+                                    </p>
+                                </div>
+                                <Switch
+                                    id="scorerEnabled"
+                                    checked={scorerEnabled}
+                                    onCheckedChange={setScorerEnabled}
+                                    className="data-[state=checked]:bg-purple-500"
+                                />
                             </div>
-                            <Switch
-                                id="scorerEnabled"
-                                checked={scorerEnabled}
-                                onCheckedChange={setScorerEnabled}
-                                className="data-[state=checked]:bg-purple-500"
-                            />
-                        </div>
+                        )}
+                        {!flags.phoneMicEnabled && !flags.scorerEnabled && (
+                            <p className="text-sm text-gray-400 text-center">
+                                No features configured. Click Create to make a
+                                room.
+                            </p>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button

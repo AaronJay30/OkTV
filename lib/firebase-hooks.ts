@@ -15,6 +15,7 @@ import {
 } from "firebase/database";
 import { rtdb } from "./firebase";
 import type { Song, User, Room } from "@/types/room";
+import { advanceRoomQueue } from "@/lib/firebase-service";
 
 // Custom hook for reliable real-time Firebase data subscription
 export function useFirebaseValue<T>(
@@ -262,55 +263,18 @@ export function useQueueAndCurrentSong(
     const loading = queueLoading || currentSongLoading || playerStateLoading;
     const error = queueError || currentSongError || playerStateError;
 
-    const playNextSongFromPredictedQueue = async (predictedQueue: Song[]) => {
-        if (predictedQueue.length > 0) {
-            const nextSongToPlay = predictedQueue[0];
-            await fbUpdateCurrentSong(nextSongToPlay);
-            await fbUpdatePlayerState(true, playerState.isMuted);
-        } else {
-            await fbUpdateCurrentSong(null);
-            await fbUpdatePlayerState(false, playerState.isMuted);
-        }
-    };
-
     const handleSongEnded = async () => {
-        if (!isAdmin || !currentSong) {
-            // If not admin, or no song was playing, do nothing or ensure player stops if no queue.
-            if (!currentSong && queue.length === 0) {
-                await fbUpdatePlayerState(false, playerState.isMuted);
-            }
-            return;
-        }
-
-        const songThatEndedKey = currentSong.firebaseKey || currentSong.id;
-        await fbRemoveSongFromQueue(songThatEndedKey);
-
-        const predictedQueue = queue.filter(
-            (s) => (s.firebaseKey || s.id) !== songThatEndedKey
-        );
-        await playNextSongFromPredictedQueue(predictedQueue);
+        if (!isAdmin || !currentSong) return;
+        await advanceRoomQueue(roomId, currentSong);
     };
 
     const handleSkipSong = async () => {
         if (!isAdmin) return;
 
         if (currentSong) {
-            // Skipping the current song
-            const songToSkipKey = currentSong.firebaseKey || currentSong.id;
-            await fbRemoveSongFromQueue(songToSkipKey);
-            const predictedQueue = queue.filter(
-                (s) => (s.firebaseKey || s.id) !== songToSkipKey
-            );
-            await playNextSongFromPredictedQueue(predictedQueue);
+            await advanceRoomQueue(roomId, currentSong);
         } else if (queue.length > 0) {
-            // No current song, but queue has songs. Play the first one and remove it.
-            // This makes "skip" also function as "play next from queue if stopped"
-            const nextSongInQueue = queue[0];
-            const keyToRemove =
-                nextSongInQueue.firebaseKey || nextSongInQueue.id;
-            await fbUpdateCurrentSong(nextSongInQueue); // Set as current
-            await fbRemoveSongFromQueue(keyToRemove); // Remove from queue
-            await fbUpdatePlayerState(true, playerState.isMuted); // Start playing
+            await advanceRoomQueue(roomId);
         } else {
             // No current song and empty queue
             await fbUpdateCurrentSong(null);
@@ -326,19 +290,7 @@ export function useQueueAndCurrentSong(
         // or could be enforced here if desired: if (!isAdmin) return;
 
         const keyToRemove = firebaseKey || songId;
-        const isRemovingCurrent =
-            currentSong &&
-            (currentSong.id === songId ||
-                currentSong.firebaseKey === firebaseKey);
-
         await fbRemoveSongFromQueue(keyToRemove);
-
-        if (isRemovingCurrent) {
-            const predictedQueue = queue.filter(
-                (s) => (s.firebaseKey || s.id) !== keyToRemove
-            );
-            await playNextSongFromPredictedQueue(predictedQueue);
-        }
     };
 
     const combinedState = {
