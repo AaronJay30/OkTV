@@ -39,8 +39,8 @@ function buildEntries(slice: string): NavEntry[] {
     return [
         { label: "Analytics", href: `/${slice}/keys`, Icon: BarChart3, live: true },
         { label: "Features", href: `/${slice}/features`, Icon: ListChecks, live: true },
-        { label: "Rooms", href: `/${slice}/rooms`, Icon: Server, live: false },
-        { label: "Audit", href: `/${slice}/audit`, Icon: ListOrdered, live: false },
+        { label: "Rooms", href: `/${slice}/rooms`, Icon: Server, live: true },
+        { label: "Audit", href: `/${slice}/audit`, Icon: ListOrdered, live: true },
     ];
 }
 
