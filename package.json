@@ -6,6 +6,7 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
+        "test": "vitest",
         "lint": "next lint",
         "docker:build": "docker build -t oktv:latest .",
         "docker:dev": "docker-compose -f docker-compose.yml up",
@@ -79,6 +80,7 @@
         "@types/react-dom": "^18",
         "postcss": "^8.5",
         "tailwindcss": "^3.4.17",
-        "typescript": "^5"
+        "typescript": "^5",
+        "vitest": "^4.1.11"
     }
 }

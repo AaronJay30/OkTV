@@ -26,6 +26,13 @@ export interface Score {
     timestamp: string;
 }
 
+export interface Reaction {
+    id?: string;
+    emoji: string;
+    userName: string;
+    createdAt: number;
+}
+
 export interface Room {
     createdAt: string;
     currentSong: Song | null;
