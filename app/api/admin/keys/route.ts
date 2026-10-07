@@ -30,7 +30,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { readSlotStats } from "@/lib/youtube-rotating-key";
+import { readSlotStats, restoreSlotStats } from "@/lib/youtube-rotating-key";
 import { YOUTUBE_DAILY_QUOTA_PER_KEY } from "@/lib/youtube-rotating-key-types";
 
 export const runtime = "nodejs";
@@ -59,6 +59,7 @@ export async function GET(request: Request) {
         return NextResponse.json({}, { status: guard.status });
     }
 
+    await restoreSlotStats();
     const raw = readSlotStats();
     const slots = raw.map((s) => ({
         label: s.label,
@@ -71,6 +72,7 @@ export async function GET(request: Request) {
                 ? new Date(s.quotaExceededAt).toISOString()
                 : null,
         pctOfDailyQuota: s.totalUnits / YOUTUBE_DAILY_QUOTA_PER_KEY,
+        hourly: s.hourly ?? Array(24).fill(0),
     }));
 
     return NextResponse.json(

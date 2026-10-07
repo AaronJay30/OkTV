@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 interface Slot {
     label: string;
@@ -27,6 +29,7 @@ interface Slot {
     last24hRequests: number;
     quotaExceededAt: string | null;
     pctOfDailyQuota: number;
+    hourly: number[];
 }
 
 interface KeysResponse {
@@ -118,8 +121,7 @@ export default function KeysPage() {
                 <div>
                     <h1 className="text-2xl font-bold mb-2">API Keys</h1>
                     <p className="text-sm text-gray-400 mb-2">
-                        Per-slot YouTube Data API v3 usage. Counters reset
-                        when the dev server restarts.
+                        Per-slot YouTube Data API v3 usage with rolling hourly history.
                     </p>
                     <div className="flex items-center gap-2 text-sm text-gray-300">
                         <Clock className="h-4 w-4 text-purple-300" />
@@ -171,6 +173,7 @@ export default function KeysPage() {
             ) : (
                 data && (
                     <div className="space-y-3">
+                        <Card className="bg-gray-800/60 border-gray-700 p-4"><h2 className="font-semibold mb-3">Quota units per hour</h2><ChartContainer config={Object.fromEntries(data.slots.map((slot, index) => [slot.label, { label: `Slot ${slot.label}`, color: ["#a855f7", "#22d3ee", "#f59e0b", "#34d399"][index % 4] }]))} className="h-64 w-full aspect-auto"><LineChart data={Array.from({ length: 24 }, (_, hour) => Object.fromEntries([['hour', `${23 - hour}h ago`], ...data.slots.map((slot) => [slot.label, slot.hourly?.[hour] ?? 0])]))}><CartesianGrid vertical={false} /><XAxis dataKey="hour" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} />{data.slots.map((slot, index) => <Line key={slot.label} type="monotone" dataKey={slot.label} stroke={["#a855f7", "#22d3ee", "#f59e0b", "#34d399"][index % 4]} dot={false} strokeWidth={2} />)}</LineChart></ChartContainer></Card>
                         {data.slots.map((slot) => (
                             <SlotRow key={slot.label} slot={slot} />
                         ))}
@@ -188,8 +191,8 @@ function EmptyState() {
             <p className="text-base text-gray-200 mb-1">No key activity yet</p>
             <p className="text-sm text-gray-400">
                 Once a guest searches or pastes a YouTube link, the keys
-                they used will appear here. In-memory counters reset on
-                server restart; persistence to RTDB is a follow-up.
+                they used will appear here. Statistics are restored from RTDB
+                when available.
             </p>
         </Card>
     );

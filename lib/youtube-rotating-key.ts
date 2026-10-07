@@ -3,6 +3,8 @@
 // /api/youtube/enrich.
 
 import type { KeySlotStats } from "./youtube-rotating-key-types";
+import { get, ref, set } from "firebase/database";
+import { rtdb } from "./firebase";
 
 const QUOTA_REASONS = new Set([
     "quotaExceeded",
@@ -161,6 +163,8 @@ export async function withRotatingKey<T>(
 // RTDB on boot, deferred to a follow-up).
 
 const slotStats = new Map<string, KeySlotStats>();
+let restorePromise: Promise<void> | null = null;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 function slotLabel(key: string): string {
     // Legacy YOUTUBE_API_KEY is "legacy"; YOUTUBE_API_KEY_N is "N".
@@ -180,6 +184,7 @@ function ensureSlot(key: string): KeySlotStats {
             totalRequests: 0,
             totalUnits: 0,
             recent: [], // timestamps in last 24h
+            recentUnits: [],
             quotaExceededAt: null,
         };
         slotStats.set(key, s);
@@ -192,12 +197,15 @@ function recordSlotSuccess(key: string, quotaCost: number) {
     s.totalRequests += 1;
     s.totalUnits += quotaCost;
     s.recent.push(Date.now());
+    s.recentUnits?.push({ at: Date.now(), units: quotaCost });
     pruneRecent(s);
+    schedulePersist();
 }
 
 function recordSlotQuotaExhausted(key: string) {
     const s = ensureSlot(key);
     s.quotaExceededAt = Date.now();
+    schedulePersist();
 }
 
 function pruneRecent(s: KeySlotStats) {
@@ -205,6 +213,50 @@ function pruneRecent(s: KeySlotStats) {
     while (s.recent.length > 0 && s.recent[0] < cutoff) {
         s.recent.shift();
     }
+    if (s.recentUnits) s.recentUnits = s.recentUnits.filter((item) => item.at >= cutoff);
+}
+
+function schedulePersist() {
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => { persistTimer = null; void persistSlotStats(); }, 60_000);
+}
+
+async function persistSlotStats() {
+    try {
+        await Promise.all(Array.from(slotStats.values()).map((s) => set(ref(rtdb, `config/keyStats/${s.label}`), {
+            last4: s.last4,
+            totalRequests: s.totalRequests,
+            totalUnits: s.totalUnits,
+            recent: s.recent,
+            recentUnits: s.recentUnits ?? [],
+            quotaExceededAt: s.quotaExceededAt,
+        })));
+    } catch { /* optional persistence must never break YouTube requests */ }
+}
+
+export async function restoreSlotStats(): Promise<void> {
+    if (restorePromise) return restorePromise;
+    restorePromise = (async () => {
+        try {
+            const snapshot = await get(ref(rtdb, "config/keyStats"));
+            const raw = snapshot.exists() ? snapshot.val() : {};
+            for (const [label, value] of Object.entries(raw && typeof raw === "object" ? raw : {})) {
+                const saved = value as Partial<KeySlotStats>;
+                const key = loadApiKeys()[label === "legacy" ? 0 : Number(label)];
+                if (!key || slotStats.has(key)) continue;
+                slotStats.set(key, {
+                    label,
+                    last4: typeof saved.last4 === "string" ? saved.last4 : key.slice(-4),
+                    totalRequests: Number(saved.totalRequests) || 0,
+                    totalUnits: Number(saved.totalUnits) || 0,
+                    recent: Array.isArray(saved.recent) ? saved.recent.filter((n): n is number => typeof n === "number") : [],
+                    recentUnits: Array.isArray(saved.recentUnits) ? saved.recentUnits as Array<{ at: number; units: number }> : [],
+                    quotaExceededAt: typeof saved.quotaExceededAt === "number" ? saved.quotaExceededAt : null,
+                });
+            }
+        } catch { /* best effort on boot */ }
+    })();
+    return restorePromise;
 }
 
 /**
@@ -219,6 +271,11 @@ export function readSlotStats(): KeySlotStats[] {
             out.push({
                 ...s,
                 last24hRequests: s.recent.length,
+                hourly: Array.from({ length: 24 }, (_, index) => {
+                    const start = Date.now() - (24 - index) * 60 * 60 * 1000;
+                    const end = start + 60 * 60 * 1000;
+                    return (s.recentUnits ?? []).filter((item) => item.at >= start && item.at < end).reduce((sum, item) => sum + item.units, 0);
+                }),
             });
         }
     }

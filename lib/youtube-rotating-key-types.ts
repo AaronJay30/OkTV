@@ -15,8 +15,11 @@ export interface KeySlotStats {
     totalUnits: number;
     /** Epoch-ms timestamps of requests in the last 24h (rolling). */
     recent: number[];
+    /** Recent quota units grouped by request timestamp for hourly charts. */
+    recentUnits?: Array<{ at: number; units: number }>;
     /** Last time the slot returned a quota-class error. null if never. */
     quotaExceededAt: number | null;
+    hourly?: number[];
     /** Derived field added by readSlotStats(). Number of recent timestamps. */
     last24hRequests?: number;
 }
