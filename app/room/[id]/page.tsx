@@ -77,7 +77,6 @@ import {
     // removeSongFromQueue, // Will use safelyRemoveSong from the combined hook
     addUserToRoom,
     removeUserFromRoom,
-    updateCurrentSong,
     updatePlayerState,
     findUserByNameInRoom, // Import the new function
 } from "@/lib/firebase-service";
@@ -251,6 +250,7 @@ export default function Room() {
     const MIN_SEARCH_INTERVAL_MS = 1500;
     const lastSearchAtRef = useRef<number>(0);
     const lastBypassAtRef = useRef<number>(0);
+    const pendingSongIdsRef = useRef(new Set<string>());
     // showNamePrompt is now initialized to false, its logic is handled in initializeRoom
     const [activeTab, setActiveTab] = useState("search");
     const [showSidebar, setShowSidebar] = useState(true);
@@ -901,20 +901,22 @@ export default function Room() {
     // Spec 2: queue the song from a preview card. Used by both the search-bar
     // preview and the dialog preview.
     const queueFromPreview = async (preview: BypassPreview) => {
+        if (pendingSongIdsRef.current.has(preview.videoId)) return;
+        pendingSongIdsRef.current.add(preview.videoId);
         const newSong: Song = {
             id: preview.videoId,
             title: preview.title,
             thumbnail: preview.thumbnail,
             addedBy: userName,
         };
-        await addSongToQueue(roomId, newSong);
-        toast({
-            title: "Song Added",
-            description: `"${preview.title}" added to queue`,
-        });
-        if (!currentSongCombined && isAdmin) {
-            await updateCurrentSong(roomId, newSong);
-            await updatePlayerState(roomId, true, false);
+        try {
+            await addSongToQueue(roomId, newSong);
+            toast({
+                title: "Song Added",
+                description: `"${preview.title}" added to queue`,
+            });
+        } finally {
+            pendingSongIdsRef.current.delete(preview.videoId);
         }
     };
 
@@ -1029,6 +1031,9 @@ export default function Room() {
 
     // Handle adding song to queue
     const handleAddToQueue = async (result: any) => {
+        const videoId = result.id.videoId as string;
+        if (pendingSongIdsRef.current.has(videoId)) return;
+        pendingSongIdsRef.current.add(videoId);
         try {
             // Decode HTML entities in the title
             const decodedTitle = result.snippet.title.replace(
@@ -1052,7 +1057,7 @@ export default function Room() {
             );
 
             const newSong: Song = {
-                id: result.id.videoId,
+                id: videoId,
                 title: decodedTitle,
                 thumbnail: result.snippet.thumbnails.default.url,
                 addedBy: userName,
@@ -1066,12 +1071,6 @@ export default function Room() {
                 description: `"${decodedTitle}" added to queue`,
             });
 
-            // If no song is currently playing, play this one
-            if (!currentSongCombined && isAdmin) {
-                await updateCurrentSong(roomId, newSong);
-                await updatePlayerState(roomId, true, false);
-            }
-
             // Switch to queue tab after adding
             setActiveTab("queue");
         } catch (error) {
@@ -1081,6 +1080,8 @@ export default function Room() {
                 description: "Failed to add song to queue",
                 variant: "destructive",
             });
+        } finally {
+            pendingSongIdsRef.current.delete(videoId);
         }
     };
 
