@@ -16,6 +16,7 @@ import {
 } from "firebase/database";
 import { rtdb } from "./firebase";
 import type { Song, User, Score } from "@/types/room";
+import { roomIsIdle } from "@/lib/admin-room";
 
 // Function to check for and delete old rooms (more than 1 day old)
 export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
@@ -35,13 +36,7 @@ export const cleanupOldRooms = async (daysOld: number = 1): Promise<number> => {
         if (rooms.hasOwnProperty(roomId)) {
             const room = rooms[roomId];
 
-            if (!room.createdAt) {
-                continue;
-            }
-
-            // Parse the ISO string to a Date object for proper comparison
-            const roomCreatedAt = new Date(room.createdAt);
-            const isOld = roomCreatedAt < cutoffDate;
+            const isOld = roomIsIdle(room, cutoffDate.getTime());
 
             // Check if room is older than specified days
             if (isOld) {
