@@ -82,7 +82,7 @@ function b64urlDecode(s: string): Buffer {
     return Buffer.from(norm, "base64");
 }
 
-function hmac(payload: string, secret: string): string {
+function hmac(payload: string, secret: string): Buffer {
     return crypto.createHmac("sha256", secret).update(payload).digest();
 }
 

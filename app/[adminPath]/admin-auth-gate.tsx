@@ -36,7 +36,7 @@ export function AdminAuthGate({
         );
     }
 
-    return <LoginForm onSuccess={undefined}>{children}</LoginForm>;
+    return <LoginForm>{children}</LoginForm>;
 }
 
 function LoginForm({ children }: { children: React.ReactNode }) {
