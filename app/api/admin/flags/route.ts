@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { ref, get, set } from "firebase/database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { rtdb } from "@/lib/firebase";
+import { writeAdminAudit } from "@/lib/admin-audit";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,7 @@ export async function PUT(request: Request) {
 
     try {
         await set(ref(rtdb, "config/flags"), body);
+        await writeAdminAudit("flag.update", body);
         return NextResponse.json(body, { status: 200 });
     } catch (e) {
         console.error("flags PUT failed", e);
