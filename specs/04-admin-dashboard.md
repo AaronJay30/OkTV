@@ -274,8 +274,8 @@ toggle — see §7.
 status indicator + reset countdown. The hourly line chart was
 **deferred** — `recent: number[]` is already exposed by
 `readSlotStats()`, so wiring a recharts line chart later is a small
-follow-up. RTDB snapshot persistence is also deferred (counters reset
-on server restart; documented on the empty state).
+follow-up. RTDB snapshot persistence is implemented as a best-effort
+60-second snapshot and restore on the first admin keys read.
 
 ### Rooms page detail
 
@@ -416,7 +416,7 @@ components/admin/*                   — section components
 |------|--------|-------|
 | `lib/admin-auth.ts` | ✅ Shipped | bcrypt compare + HMAC + CSRF + 5/min/IP rate limit |
 | `lib/youtube-rotating-key-types.ts` | ✅ Shipped | `KeySlotStats` + `ENDPOINT_QUOTA_COSTS` |
-| `lib/youtube-rotating-key.ts` (instrumented) | ✅ Shipped | Per-slot counters; `readSlotStats()` |
+| `lib/youtube-rotating-key.ts` (instrumented) | ✅ Shipped | Per-slot counters; RTDB snapshot/restore; hourly buckets |
 | `app/api/youtube/search` + `enrich` | ✅ Updated | Pass explicit `quotaCost` |
 | `scripts/hash-password.cjs` | ✅ Shipped | Interactive stdin-based hash generator |
 | `app/api/admin/login/route.ts` | ✅ Shipped | Rate-limited bcrypt |
@@ -434,9 +434,9 @@ components/admin/*                   — section components
 | `app/page.tsx` (modal gating) | ✅ Updated | Hides admin-disabled rows in modal |
 | `.env.example` | ✅ Updated | Admin vars documented |
 | RTDB rules in your Firebase Console | ⏸ **You do this** | See §7.1 |
-| `app/[adminPath]/rooms/page.tsx` | ❌ Not started | Spec §8 rooms |
-| `app/[adminPath]/audit/page.tsx` | ❌ Not started | Spec §8 audit |
-| `app/api/admin/rooms/*` + `audit/*` | ❌ Not started | |
+| `app/[adminPath]/rooms/page.tsx` | ✅ Shipped | Live room browser, expand, delete, multi-select, purge |
+| `app/[adminPath]/audit/page.tsx` | ✅ Shipped | Last 50 audit entries |
+| `app/api/admin/rooms/*` + `audit/*` | ✅ Shipped | Auth/CSRF-protected room and audit APIs |
 | Firebase Admin SDK + service account | ❌ Deferred (§7.1) | Proper RTDB rules fix |
-| RTDB snapshot persistence (60s writes) | ❌ Deferred (§10) | Process-local counters for v1 |
-| `chart.tsx` line chart on `/keys` | ❌ Deferred (§8.10) | `recent: number[]` is already exposed |
+| RTDB snapshot persistence (60s writes) | ✅ Shipped | Best-effort snapshots with restore on first admin read |
+| `chart.tsx` line chart on `/keys` | ✅ Shipped | 24-hour hourly quota units per slot |
