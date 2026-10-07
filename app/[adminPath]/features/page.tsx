@@ -13,7 +13,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Mic2, Star, Loader2 as LoaderIcon } from "lucide-react";
+import { Mic2, Star, SmilePlus, Loader2 as LoaderIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -38,6 +38,12 @@ const FEATURES: Feature[] = [
         name: "Karaoke Scorer",
         description: "Show a random score after each performance.",
         Icon: Star,
+    },
+    {
+        key: "reactionsEnabled",
+        name: "Live Reactions",
+        description: "Allow guests to send floating reactions in rooms.",
+        Icon: SmilePlus,
     },
     // Note: the create-room modal is not a manual toggle. It's derived:
     // shown when any feature above is on, skipped when both are off
@@ -74,6 +80,7 @@ export default function FeaturesPage() {
                 setFlags({
                     phoneMicEnabled: !!data?.phoneMicEnabled,
                     scorerEnabled: !!data?.scorerEnabled,
+                    reactionsEnabled: !!data?.reactionsEnabled,
                 });
                 setLoadError(null);
             })

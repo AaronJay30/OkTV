@@ -1432,8 +1432,8 @@ export default function Room() {
         >
             <Toaster />
 
-            <ReactionOverlay roomId={roomId} />
-            {!isAdmin && userName.trim() && (
+            {roomData?.reactionsEnabled && <ReactionOverlay roomId={roomId} />}
+            {!isAdmin && roomData?.reactionsEnabled && userName.trim() && (
                 <ReactionPicker roomId={roomId} userName={userName} />
             )}
 

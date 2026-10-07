@@ -40,6 +40,7 @@ export interface Room {
     isMuted: boolean;
     micFeatureEnabled?: boolean;
     scorerEnabled?: boolean;
+    reactionsEnabled?: boolean;
     queue?: Record<string, Song>;
     users?: Record<string, User>;
 }

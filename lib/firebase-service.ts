@@ -56,7 +56,8 @@ export const createRoom = async (
     roomId: string,
     adminUser: User,
     micFeatureEnabled: boolean = false,
-    scorerEnabled: boolean = false
+    scorerEnabled: boolean = false,
+    reactionsEnabled: boolean = false
 ): Promise<void> => {
     // Clean up old rooms before creating a new one
     try {
@@ -78,6 +79,7 @@ export const createRoom = async (
         isMuted: false,
         micFeatureEnabled: micFeatureEnabled,
         scorerEnabled: scorerEnabled,
+        reactionsEnabled: reactionsEnabled,
     });
 
     // Add admin user directly with their specified ID

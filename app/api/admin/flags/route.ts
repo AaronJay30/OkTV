@@ -7,7 +7,7 @@
 //   {
 //     phoneMicEnabled: boolean,
 //     scorerEnabled: boolean,
-//     createRoomModalEnabled: boolean
+//     reactionsEnabled: boolean
 //   }
 //
 // Any field not present is rejected — flag writes are an explicit
@@ -22,7 +22,11 @@ import { writeAdminAudit } from "@/lib/admin-audit";
 
 export const runtime = "nodejs";
 
-const ALLOWED_KEYS = ["phoneMicEnabled", "scorerEnabled"] as const;
+const ALLOWED_KEYS = [
+    "phoneMicEnabled",
+    "scorerEnabled",
+    "reactionsEnabled",
+] as const;
 type FlagKey = (typeof ALLOWED_KEYS)[number];
 type FlagsPayload = Record<FlagKey, boolean>;
 
@@ -63,6 +67,7 @@ export async function GET(request: Request) {
             ? {
                   phoneMicEnabled: !!(raw as Record<string, unknown>).phoneMicEnabled,
                   scorerEnabled: !!(raw as Record<string, unknown>).scorerEnabled,
+                  reactionsEnabled: !!(raw as Record<string, unknown>).reactionsEnabled,
               }
             : {};
         return NextResponse.json(stripped, { status: 200 });

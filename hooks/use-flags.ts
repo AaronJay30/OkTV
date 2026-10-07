@@ -22,37 +22,20 @@
 "use client";
 
 import { useFirebaseValue } from "@/lib/firebase-hooks";
+import {
+    normalizeFlags,
+    shouldSkipCreateRoomModal,
+    type Flags,
+} from "@/lib/feature-flags";
 
-export interface Flags {
-    phoneMicEnabled: boolean;
-    scorerEnabled: boolean;
-}
-
-// Default to permissive (all true). Applied when RTDB has no value
-// for the corresponding field — both when the whole node is absent
-// and when individual keys are missing.
-const DEFAULTS: Flags = {
-    phoneMicEnabled: true,
-    scorerEnabled: true,
-};
-
-function normalize(raw: unknown): Flags {
-    if (!raw || typeof raw !== "object") return DEFAULTS;
-    const r = raw as Record<string, unknown>;
-    return {
-        phoneMicEnabled:
-            typeof r.phoneMicEnabled === "boolean" ? r.phoneMicEnabled : true,
-        scorerEnabled:
-            typeof r.scorerEnabled === "boolean" ? r.scorerEnabled : true,
-    };
-}
+export type { Flags } from "@/lib/feature-flags";
 
 export function useFlags(): { flags: Flags; loading: boolean } {
     // useFirebaseValue returns [value, loading, error]. We don't need
     // the error here — the defaults apply regardless and a toast on
     // RTDB outage is out of scope for v1.
     const [raw, loading] = useFirebaseValue<unknown>("config/flags", null);
-    return { flags: normalize(raw), loading };
+    return { flags: normalizeFlags(raw), loading };
 }
 
 /**
@@ -64,6 +47,4 @@ export function useFlags(): { flags: Flags; loading: boolean } {
  * but the modal-vs-skip behavior is fully derived from the two real
  * feature flags, so the manual toggle was removed.)
  */
-export function shouldSkipCreateRoomModal(flags: Flags): boolean {
-    return !flags.phoneMicEnabled && !flags.scorerEnabled;
-}
+export { shouldSkipCreateRoomModal };

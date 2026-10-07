@@ -9,6 +9,7 @@ import {
     Mic2,
     RefreshCw,
     Star,
+    SmilePlus,
     Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -169,7 +170,12 @@ export default function RoomsPage() {
                                                 <Star className="h-3 w-3" /> Scorer
                                             </Badge>
                                         )}
-                                        {!room.micFeatureEnabled && !scorerEnabled && <span className="text-xs text-gray-500">None enabled</span>}
+                                        {room.reactionsEnabled && (
+                                            <Badge variant="outline" className="gap-1 border-pink-500/40 text-pink-200">
+                                                <SmilePlus className="h-3 w-3" /> Reactions
+                                            </Badge>
+                                        )}
+                                        {!room.micFeatureEnabled && !scorerEnabled && !room.reactionsEnabled && <span className="text-xs text-gray-500">None enabled</span>}
                                     </div>
 
                                     <div className="flex items-center gap-2 md:justify-end">
