@@ -45,3 +45,17 @@
 .glow-box {
     box-shadow: 0 0 10px rgba(168, 85, 247, 0.1), 0 0 20px rgba(0, 0, 0, 0.5);
 }
+
+.reaction-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reaction-overlay {
+        opacity: 0.95;
+    }
+}

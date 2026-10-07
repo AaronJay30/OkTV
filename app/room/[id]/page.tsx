@@ -69,6 +69,8 @@ import { generatePerformanceScore } from "@/lib/scoring-service"; // Import the 
 import { RovingList } from "@/components/ui/roving-list"; // Spec 3: D-pad list navigation
 import { useTvBack } from "@/hooks/use-tv-shortcuts"; // Spec 3: Back button on remote
 import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fallback
+import { ReactionPicker } from "@/components/reaction-picker";
+import { ReactionOverlay } from "@/components/reaction-overlay";
 import {
     createRoom,
     checkRoomExists,
@@ -1429,6 +1431,11 @@ export default function Room() {
             ref={mainContainerRef}
         >
             <Toaster />
+
+            <ReactionOverlay roomId={roomId} />
+            {!isAdmin && userName.trim() && (
+                <ReactionPicker roomId={roomId} userName={userName} />
+            )}
 
             {/* Score Display Modal */}
             <ScoreDisplayModal
