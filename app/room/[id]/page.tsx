@@ -71,6 +71,8 @@ import { useTvBack } from "@/hooks/use-tv-shortcuts"; // Spec 3: Back button on 
 import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fallback
 import { ReactionPicker } from "@/components/reaction-picker";
 import { ReactionOverlay } from "@/components/reaction-overlay";
+import { ExperimentalBadge } from "@/components/experimental-badge";
+import { useFlags } from "@/hooks/use-flags";
 import {
     createRoom,
     checkRoomExists,
@@ -231,6 +233,7 @@ export default function Room() {
     const router = useRouter();
     const searchParamsHook = useSearchParams();
     const roomId = params.id as string;
+    const { flags } = useFlags();
 
     const ROOM_ID_LENGTH = 6;
 
@@ -1460,7 +1463,11 @@ export default function Room() {
                 <ReactionOverlay roomId={roomId} isAdmin={isAdmin} />
             )}
             {!isAdmin && roomData?.reactionsEnabled && userName.trim() && (
-                <ReactionPicker roomId={roomId} userName={userName} />
+                <ReactionPicker
+                    roomId={roomId}
+                    userName={userName}
+                    experimental={flags.reactionsExperimental}
+                />
             )}
 
             {/* Score Display Modal */}
@@ -2468,6 +2475,10 @@ export default function Room() {
                                                 <div className="space-y-2">
                                                     <h3 className="text-xl font-semibold text-white">
                                                         Phone Microphone
+                                                        <ExperimentalBadge
+                                                            experimental={flags.phoneMicExperimental}
+                                                            className="ml-2 align-middle"
+                                                        />
                                                     </h3>
                                                     <p className="text-gray-400">
                                                         {isMutedByAdmin
@@ -2633,9 +2644,10 @@ export default function Room() {
                                                 <Trophy className="h-5 w-5 text-yellow-400 mr-2" />
                                                 <h3 className="text-lg font-medium">
                                                     Karaoke Champions
-                                                    <span className="ml-2 text-xs text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full">
-                                                        BETA
-                                                    </span>
+                                                    <ExperimentalBadge
+                                                        experimental={flags.scorerExperimental}
+                                                        className="ml-2 align-middle"
+                                                    />
                                                 </h3>
                                             </div>
                                             <p className="text-xs text-gray-400">

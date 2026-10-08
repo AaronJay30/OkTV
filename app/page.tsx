@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 import { useFlags, shouldSkipCreateRoomModal } from "@/hooks/use-flags";
 
 export default function Home() {
@@ -300,9 +301,10 @@ export default function Home() {
                                         className="text-white flex items-center"
                                     >
                                         Phone as Microphone
-                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
-                                            BETA
-                                        </span>
+                                        <ExperimentalBadge
+                                            experimental={flags.phoneMicExperimental}
+                                            className="ml-2"
+                                        />
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Allow users to use their phones as
@@ -325,9 +327,10 @@ export default function Home() {
                                         className="text-white flex items-center"
                                     >
                                         Karaoke Scorer
-                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
-                                            BETA
-                                        </span>
+                                        <ExperimentalBadge
+                                            experimental={flags.scorerExperimental}
+                                            className="ml-2"
+                                        />
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Display a random score after each song
@@ -351,6 +354,10 @@ export default function Home() {
                                     >
                                         Live Reactions
                                         <SmilePlus className="ml-2 h-4 w-4 text-pink-300" />
+                                        <ExperimentalBadge
+                                            experimental={flags.reactionsExperimental}
+                                            className="ml-2"
+                                        />
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Let guests send floating reactions during songs

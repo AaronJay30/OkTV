@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 import {
     REACTION_OPTIONS,
     sendReaction,
@@ -12,12 +13,14 @@ interface ReactionPickerProps {
     roomId: string;
     userName: string;
     disabled?: boolean;
+    experimental?: boolean;
 }
 
 export function ReactionPicker({
     roomId,
     userName,
     disabled = false,
+    experimental = false,
 }: ReactionPickerProps) {
     const [error, setError] = useState(false);
 
@@ -50,6 +53,7 @@ export function ReactionPicker({
                 </Button>
             ))}
             <Send className="ml-1 h-3.5 w-3.5 text-purple-300" aria-hidden="true" />
+            <ExperimentalBadge experimental={experimental} />
             {error && <span className="sr-only">Reaction failed to send</span>}
         </div>
     );
