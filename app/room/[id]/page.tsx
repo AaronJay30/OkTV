@@ -1841,36 +1841,27 @@ export default function Room() {
                             className="flex-1 flex flex-col h-full"
                         >
                             {" "}
-                            <TabsList
-                                className={cn(
-                                    "grid mb-4",
-                                    isAdmin
-                                        ? roomData?.scorerEnabled
-                                            ? "grid-cols-4" // 4 columns when admin with scoring enabled
-                                            : "grid-cols-3" // 3 columns when admin without scoring
-                                        : roomData?.micFeatureEnabled
-                                        ? roomData?.scorerEnabled
-                                            ? "grid-cols-4" // 4 columns when non-admin with mic and scoring
-                                            : "grid-cols-3" // 3 columns when non-admin with mic only
-                                        : roomData?.scorerEnabled
-                                        ? "grid-cols-3" // 3 columns when non-admin with scoring only
-                                        : "grid-cols-2" // 2 columns when non-admin without mic or scoring
-                                )}
-                            >
-                                <TabsTrigger value="search">Search</TabsTrigger>
-                                <TabsTrigger value="queue">Queue</TabsTrigger>
+                            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 mb-2">
+                                <TabsTrigger className="w-full" value="search">
+                                    Search
+                                </TabsTrigger>
+                                <TabsTrigger className="w-full" value="queue">
+                                    Queue
+                                </TabsTrigger>
                                 {isAdmin && (
-                                    <TabsTrigger value="users">
+                                    <TabsTrigger className="w-full" value="users">
                                         Users
                                     </TabsTrigger>
                                 )}
                                 {roomData?.scorerEnabled && (
-                                    <TabsTrigger value="scores">
+                                    <TabsTrigger className="w-full" value="scores">
                                         Scores
                                     </TabsTrigger>
                                 )}
                                 {!isAdmin && roomData?.micFeatureEnabled && (
-                                    <TabsTrigger value="mic">Mic</TabsTrigger>
+                                    <TabsTrigger className="w-full" value="mic">
+                                        Mic
+                                    </TabsTrigger>
                                 )}
                             </TabsList>
                             <div>
@@ -2637,10 +2628,10 @@ export default function Room() {
                                 {roomData?.scorerEnabled && (
                                     <TabsContent
                                         value="scores"
-                                        className="flex-1 flex flex-col overflow-hidden"
+                                        className="mt-0 flex-1 flex min-w-0 flex-col overflow-hidden"
                                     >
-                                        <div className="flex flex-col mb-4">
-                                            <div className="flex items-center mb-2">
+                                        <div className="flex flex-col mb-2">
+                                            <div className="flex items-center mb-1">
                                                 <Trophy className="h-5 w-5 text-yellow-400 mr-2" />
                                                 <h3 className="text-lg font-medium">
                                                     Karaoke Champions
@@ -2656,9 +2647,9 @@ export default function Room() {
                                         </div>
                                         <ScrollArea
                                             orientation="vertical"
-                                            className="flex-1 bg-gray-800/30 rounded-lg p-1"
+                                            className="min-w-0 flex-1 bg-gray-800/30 rounded-lg p-1"
                                         >
-                                            <div className="px-1">
+                                            <div className="min-w-0 overflow-hidden px-1">
                                                 <HighScores roomId={roomId} />
                                             </div>
                                         </ScrollArea>
