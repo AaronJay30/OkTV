@@ -8,15 +8,24 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Trophy, Music, Star } from "lucide-react";
 import { saveScore } from "@/lib/firebase-service";
 import {
     animateScoreReveal,
     getPerformanceRating,
     generatePerformanceScore,
+    SCORE_MODAL_DURATION_MS,
+    SCORE_REVEAL_DURATION_MS,
 } from "@/lib/scoring-service";
 import type { User, Song } from "@/types/room";
+
+const STAR_POSITIONS = [
+    { x: -54, y: -38, scale: 0.9 },
+    { x: 48, y: -44, scale: 1.1 },
+    { x: -68, y: 18, scale: 0.8 },
+    { x: 62, y: 24, scale: 1 },
+    { x: 0, y: -64, scale: 1.2 },
+];
 
 interface ScoreDisplayModalProps {
     open: boolean;
@@ -24,7 +33,6 @@ interface ScoreDisplayModalProps {
     roomId: string;
     currentUser: User | null;
     currentSong: Song | null;
-    handleSongEnded?: () => void; // Added optional prop for handleSongEnded
 }
 
 export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
@@ -33,7 +41,6 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
     roomId,
     currentUser,
     currentSong,
-    handleSongEnded,
 }) => {
     const [score, setScore] = useState<number>(0);
     const [isAnimating, setIsAnimating] = useState<boolean>(false);
@@ -48,28 +55,12 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         const audio = new Audio("/sounds/karaoke.mp3");
         audio.preload = "auto"; // Preload the audio
 
-        // Add event listeners for debugging
-        audio.addEventListener("error", (e) => {
-            console.error("Audio error:", e);
-            console.error(
-                "Audio error code:",
-                audio.error ? audio.error.code : "unknown"
-            );
-        });
-
-        audio.addEventListener("canplaythrough", () => {
-            console.log("Audio can play through");
-        });
-
         setAudioElement(audio);
 
         return () => {
             if (audio) {
                 audio.pause();
                 audio.currentTime = 0;
-                // Clean up event listeners
-                audio.removeEventListener("error", () => {});
-                audio.removeEventListener("canplaythrough", () => {});
             }
         };
     }, []);
@@ -81,46 +72,30 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         }
     }, [open]);
 
+    useEffect(() => {
+        if (!open) return;
+
+        const timer = window.setTimeout(handleClose, SCORE_MODAL_DURATION_MS);
+        return () => window.clearTimeout(timer);
+    }, [open]);
+
     const startScoreAnimation = () => {
         setIsAnimating(true);
         setIsCompleted(false);
 
-        // Generate a score between 80-100
+        // Generate one final score for this reveal and persist that same value.
         const finalScore = generatePerformanceScore();
 
         // Play sound effect
         if (audioElement) {
             audioElement.currentTime = 0;
-            console.log("Attempting to play audio from:", audioElement.src);
-
-            // Try to play the audio
-            audioElement
-                .play()
-                .then(() => console.log("Audio playing successfully"))
-                .catch((err) => {
-                    console.error("Failed to play audio:", err);
-                    // Create a new audio element and try again with the full URL
-                    const fallbackAudio = new Audio(
-                        window.location.origin + "/sounds/karaoke.mp3"
-                    );
-                    fallbackAudio
-                        .play()
-                        .then(() =>
-                            console.log("Fallback audio playing successfully")
-                        )
-                        .catch((fallbackErr) =>
-                            console.error(
-                                "Fallback audio also failed:",
-                                fallbackErr
-                            )
-                        );
-                });
+            void audioElement.play().catch(() => undefined);
         }
 
         // Animate the score
         animateScoreReveal(
             finalScore,
-            3000, // 3 seconds animation
+            SCORE_REVEAL_DURATION_MS,
             {
                 onStart: () => {
                     setIsAnimating(true);
@@ -160,17 +135,16 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         setIsAnimating(false);
         setIsCompleted(false);
         onClose(); // Call the parent's onClose function
-
-        // Call handleSongEnded if it exists
-        if (handleSongEnded) {
-            console.log("Calling handleSongEnded from score modal");
-            handleSongEnded();
-        }
     };
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
-            <DialogContent className="bg-gray-900 border-purple-500 text-white max-w-md mx-auto">
+            <DialogContent
+                showCloseButton={false}
+                onEscapeKeyDown={(event) => event.preventDefault()}
+                onPointerDownOutside={(event) => event.preventDefault()}
+                className="bg-gray-900 border-purple-500 text-white max-w-md mx-auto"
+            >
                 <DialogHeader>
                     <DialogTitle className="text-2xl text-center text-purple-500 flex items-center justify-center gap-2">
                         <Trophy className="h-6 w-6 text-yellow-400" />
@@ -205,7 +179,7 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
                         <AnimatePresence>
                             {isCompleted && (
                                 <>
-                                    {[...Array(5)].map((_, i) => (
+                                    {STAR_POSITIONS.map((position, i) => (
                                         <motion.div
                                             key={`star-${i}`}
                                             className="absolute top-1/2 left-1/2"
@@ -216,10 +190,9 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
                                                 opacity: 0,
                                             }}
                                             animate={{
-                                                x: Math.random() * 100 - 50,
-                                                y: Math.random() * 100 - 50,
-                                                scale:
-                                                    Math.random() * 0.5 + 0.5,
+                                                x: position.x,
+                                                y: position.y,
+                                                scale: position.scale,
                                                 opacity: 1,
                                             }}
                                             exit={{ opacity: 0 }}
@@ -251,14 +224,6 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
                     </AnimatePresence>
                 </div>
 
-                <div className="flex justify-center">
-                    <Button
-                        onClick={handleClose}
-                        className="bg-purple-600 hover:bg-purple-500"
-                    >
-                        Close
-                    </Button>
-                </div>
             </DialogContent>
         </Dialog>
     );

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Music, Mic, Users, Play, Loader2, Tv, Download } from "lucide-react";
+import { Music, Mic, Users, Play, Loader2, Tv, Download, SmilePlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { checkRoomExists, createRoom } from "@/lib/firebase-service";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 import { useFlags, shouldSkipCreateRoomModal } from "@/hooks/use-flags";
 
 export default function Home() {
@@ -30,10 +31,11 @@ export default function Home() {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [micFeatureEnabled, setMicFeatureEnabled] = useState(false);
     const [scorerEnabled, setScorerEnabled] = useState(false); // New state for scorer feature
+    const [reactionsEnabled, setReactionsEnabled] = useState(false);
 
     // Spec 04 §7: skip the create-room modal whenever the user has
     // no features to configure. The modal-vs-skip behavior is fully
-    // derived from the two real feature flags (phone mic + scorer).
+    // derived from the configurable feature flags.
     const { flags } = useFlags();
     const skipModal = shouldSkipCreateRoomModal(flags);
 
@@ -58,7 +60,8 @@ export default function Home() {
                 roomCode,
                 { id: "admin", name: "Admin", isAdmin: true },
                 micFeatureEnabled,
-                scorerEnabled
+                scorerEnabled,
+                reactionsEnabled
             );
 
             router.push(`/room/${roomCode}?admin=true`);
@@ -298,9 +301,10 @@ export default function Home() {
                                         className="text-white flex items-center"
                                     >
                                         Phone as Microphone
-                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
-                                            BETA
-                                        </span>
+                                        <ExperimentalBadge
+                                            experimental={flags.phoneMicExperimental}
+                                            className="ml-2"
+                                        />
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Allow users to use their phones as
@@ -323,9 +327,10 @@ export default function Home() {
                                         className="text-white flex items-center"
                                     >
                                         Karaoke Scorer
-                                        <span className="ml-2 text-xs bg-yellow-600 text-white px-2 py-0.5 rounded-full">
-                                            BETA
-                                        </span>
+                                        <ExperimentalBadge
+                                            experimental={flags.scorerExperimental}
+                                            className="ml-2"
+                                        />
                                     </Label>
                                     <p className="text-sm text-gray-400">
                                         Display a random score after each song
@@ -340,7 +345,35 @@ export default function Home() {
                                 />
                             </div>
                         )}
-                        {!flags.phoneMicEnabled && !flags.scorerEnabled && (
+                        {flags.reactionsEnabled && (
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label
+                                        htmlFor="reactionsEnabled"
+                                        className="text-white flex items-center"
+                                    >
+                                        <SmilePlus className="mr-2 h-4 w-4 text-purple-400" />
+                                        Live Reactions
+                                        <ExperimentalBadge
+                                            experimental={flags.reactionsExperimental}
+                                            className="ml-2"
+                                        />
+                                    </Label>
+                                    <p className="text-sm text-gray-400">
+                                        Let guests send floating reactions during songs
+                                    </p>
+                                </div>
+                                <Switch
+                                    id="reactionsEnabled"
+                                    checked={reactionsEnabled}
+                                    onCheckedChange={setReactionsEnabled}
+                                    className="data-[state=checked]:bg-purple-500"
+                                />
+                            </div>
+                        )}
+                        {!flags.phoneMicEnabled &&
+                            !flags.scorerEnabled &&
+                            !flags.reactionsEnabled && (
                             <p className="text-sm text-gray-400 text-center">
                                 No features configured. Click Create to make a
                                 room.

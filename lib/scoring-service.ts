@@ -1,11 +1,16 @@
 // lib/scoring-service.ts
 
 /**
- * Generates a random performance score between 80 and 100.
- * @returns A random integer score.
+ * Generates a weighted performance score so ordinary performances are common
+ * while exceptional scores remain possible.
  */
-export const generatePerformanceScore = (): number => {
-    return Math.floor(Math.random() * 21) + 80; // Random score between 80 and 100
+export const generatePerformanceScore = (random: () => number = Math.random): number => {
+    const value = Math.min(0.999999, Math.max(0, random()));
+
+    if (value < 0.1) return 70 + Math.floor(value * 100);
+    if (value < 0.6) return 80 + Math.floor((value - 0.1) * 20);
+    if (value < 0.9) return 90 + Math.floor((value - 0.6) * (7 / 0.3));
+    return 97 + Math.floor((value - 0.9) * 40);
 };
 
 /**
@@ -17,15 +22,18 @@ export type ScoreAnimationCallbacks = {
     onComplete?: (finalScore: number) => void;
 };
 
+export const SCORE_REVEAL_DURATION_MS = 4000;
+export const SCORE_MODAL_DURATION_MS = 16000;
+
 /**
  * Handles the animation logic for revealing the score.
  * @param finalScore - The predetermined final score to display
- * @param duration - Animation duration in ms (default 3000ms)
+ * @param duration - Animation duration in ms (default 4000ms)
  * @param callbacks - Callbacks for animation events
  */
 export const animateScoreReveal = (
     finalScore: number,
-    duration: number = 3000,
+    duration: number = SCORE_REVEAL_DURATION_MS,
     callbacks?: ScoreAnimationCallbacks
 ): void => {
     // Start time for the animation

@@ -15,6 +15,8 @@ export interface User {
     joinedAt?: string;
     isMicOn?: boolean;
     isMutedByAdmin?: boolean;
+    micEchoLevel?: number;
+    micVolumeLevel?: number;
 }
 
 export interface Score {
@@ -26,6 +28,13 @@ export interface Score {
     timestamp: string;
 }
 
+export interface Reaction {
+    id?: string;
+    emoji: string;
+    userName: string;
+    createdAt: number;
+}
+
 export interface Room {
     createdAt: string;
     currentSong: Song | null;
@@ -33,6 +42,7 @@ export interface Room {
     isMuted: boolean;
     micFeatureEnabled?: boolean;
     scorerEnabled?: boolean;
+    reactionsEnabled?: boolean;
     queue?: Record<string, Song>;
     users?: Record<string, User>;
 }

@@ -68,7 +68,10 @@ import { HighScores } from "@/components/high-scores"; // Import the HighScores 
 import { generatePerformanceScore } from "@/lib/scoring-service"; // Import the scoring service
 import { RovingList } from "@/components/ui/roving-list"; // Spec 3: D-pad list navigation
 import { useTvBack } from "@/hooks/use-tv-shortcuts"; // Spec 3: Back button on remote
-import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fallback
+import { ReactionPicker } from "@/components/reaction-picker";
+import { ReactionOverlay } from "@/components/reaction-overlay";
+import { ExperimentalBadge } from "@/components/experimental-badge";
+import { useFlags } from "@/hooks/use-flags";
 import {
     createRoom,
     checkRoomExists,
@@ -92,7 +95,14 @@ import {
     MicrophoneRTCManager,
     AdminRTCManager,
     updateUserMicStatus,
+    updateUserMicEchoLevel,
+    updateUserMicVolumeLevel,
 } from "@/lib/webrtc-service";
+import {
+    DEFAULT_MIC_VOLUME_LEVEL,
+    micVolumeLevelToGain,
+    normalizeMicVolumeLevel,
+} from "@/lib/microphone-audio";
 
 // Define YouTube component props type
 interface YouTubeProps {
@@ -222,6 +232,7 @@ export default function Room() {
     const router = useRouter();
     const searchParamsHook = useSearchParams();
     const roomId = params.id as string;
+    const { flags } = useFlags();
 
     const ROOM_ID_LENGTH = 6;
 
@@ -262,6 +273,8 @@ export default function Room() {
 
     // Scoring feature states
     const [showScoreModal, setShowScoreModal] = useState(false);
+    const [scoringSong, setScoringSong] = useState<Song | null>(null);
+    const scoringSongRef = useRef<Song | null>(null);
     const [currentScore, setCurrentScore] = useState(0);
     const [showHighScores, setShowHighScores] = useState(false);
 
@@ -274,7 +287,7 @@ export default function Room() {
     });
     useTvBack({
         isOpen: showScoreModal,
-        onClose: () => setShowScoreModal(false),
+        onClose: () => undefined,
     });
     useTvBack({
         isOpen: showHighScores,
@@ -283,6 +296,10 @@ export default function Room() {
 
     // Microphone feature states
     const [isMutedByAdmin, setIsMutedByAdmin] = useState(false);
+    const [micEchoLevel, setMicEchoLevel] = useState(0);
+    const [micVolumeLevel, setMicVolumeLevel] = useState(
+        DEFAULT_MIC_VOLUME_LEVEL
+    );
     // Use the useMicrophone hook to handle microphone access
     const {
         isMicOn,
@@ -296,10 +313,6 @@ export default function Room() {
     // Volume control states
     const [videoVolume, setVideoVolume] = useState(100); // 0-100 for video volume
     const [showVolumeSlider, setShowVolumeSlider] = useState(false); // Show/hide video volume slider
-    const [userMicVolumes, setUserMicVolumes] = useState<{
-        [userId: string]: number;
-    }>({});
-
     // WebRTC managers refs
     const micRTCManagerRef = useRef<MicrophoneRTCManager | null>(null);
     const adminRTCManagerRef = useRef<AdminRTCManager | null>(null);
@@ -321,6 +334,19 @@ export default function Room() {
         combinedError,
         queueActions,
     ] = useQueueAndCurrentSong(roomId, isAdmin);
+
+    useEffect(() => {
+        if (isAdmin || !firebaseUserId) return;
+        const currentUser = users.find((user) => user.id === firebaseUserId);
+        if (currentUser) {
+            setMicEchoLevel(currentUser.micEchoLevel ?? 0);
+            setMicVolumeLevel(
+                normalizeMicVolumeLevel(
+                    currentUser.micVolumeLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                )
+            );
+        }
+    }, [firebaseUserId, isAdmin, users]);
 
     // Refs (unconditional)
     const playerRef = useRef<any>(null);
@@ -573,38 +599,11 @@ export default function Room() {
                                     delete updated[userId];
                                 }
                                 return updated;
-                            }); // Here you would also handle playing the audio from the stream
+                            });
                             if (stream && event === "add") {
                                 console.log(
                                     `User ${userId} microphone connected`
                                 );
-
-                                // Remove any existing audio element for this user
-                                const existingAudio = document.getElementById(
-                                    `audio-${userId}`
-                                ) as HTMLAudioElement;
-
-                                if (existingAudio) {
-                                    if (existingAudio.srcObject) {
-                                        const oldStream =
-                                            existingAudio.srcObject as MediaStream;
-                                        oldStream
-                                            .getTracks()
-                                            .forEach((track) => track.stop());
-                                    }
-                                    existingAudio.srcObject = null;
-                                    existingAudio.remove();
-                                }
-
-                                // Create a new audio element to play the stream
-                                const audioElement = new Audio();
-                                audioElement.srcObject = stream;
-                                audioElement.id = `audio-${userId}`;
-                                audioElement.autoplay = true;
-
-                                // Add the audio element to the DOM (hidden)
-                                audioElement.style.display = "none";
-                                document.body.appendChild(audioElement);
 
                                 toast({
                                     title: "User microphone connected",
@@ -614,22 +613,6 @@ export default function Room() {
                                 console.log(
                                     `User ${userId} microphone disconnected`
                                 );
-
-                                // Remove the audio element for this user
-                                const audioElement = document.getElementById(
-                                    `audio-${userId}`
-                                ) as HTMLAudioElement;
-                                if (audioElement) {
-                                    if (audioElement.srcObject) {
-                                        const stream =
-                                            audioElement.srcObject as MediaStream;
-                                        stream
-                                            .getTracks()
-                                            .forEach((track) => track.stop());
-                                    }
-                                    audioElement.srcObject = null;
-                                    audioElement.remove();
-                                }
                             }
                         }
                     );
@@ -657,14 +640,27 @@ export default function Room() {
                 // Close all connections
                 adminRTCManagerRef.current.close();
                 adminRTCManagerRef.current = null;
-
-                // Remove all audio elements
-                document
-                    .querySelectorAll('[id^="audio-"]')
-                    .forEach((el) => el.remove());
             }
         };
     }, [isAdmin, isInitialized, roomId, roomData?.micFeatureEnabled]);
+
+    // Echo is chosen by each phone user; the host only applies that level locally.
+    useEffect(() => {
+        const manager = adminRTCManagerRef.current;
+        if (!isAdmin || !manager || !roomData?.micFeatureEnabled) return;
+
+        users.forEach((user) => {
+            if (!user.isAdmin) {
+                manager.setUserVolume(
+                    user.id,
+                    micVolumeLevelToGain(
+                        user.micVolumeLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                    )
+                );
+                manager.setUserMicEchoLevel(user.id, user.micEchoLevel ?? 0);
+            }
+        });
+    }, [isAdmin, roomData?.micFeatureEnabled, users]);
 
     // Set origin URL on client side, only when room is validated
     useEffect(() => {
@@ -1135,28 +1131,30 @@ export default function Room() {
 
     // Handle skip
     const handleSkip = async () => {
-        if (isAdmin && currentSongCombined) {
+        if (isAdmin && currentSongCombined && !scoringSongRef.current) {
             await queueActions.handleSongEnded(); // Use new action
         }
     };
 
     // Handle scoring performance
-    const handleShowScore = () => {
-        if (roomData?.scorerEnabled && currentSongCombined) {
-            // Generate a score and show the modal
+    const handleShowScore = (endedSong: Song) => {
+        if (roomData?.scorerEnabled && !scoringSongRef.current) {
+            scoringSongRef.current = endedSong;
+            setScoringSong(endedSong);
             setShowScoreModal(true);
         }
     };
 
-    // Handle closing the score modal
-    const handleCloseScoreModal = () => {
+    // Finish scoring before advancing to the next song.
+    const handleCloseScoreModal = async () => {
+        const endedSong = scoringSongRef.current;
         setShowScoreModal(false);
-        // NOTE: Queue advancement intentionally NOT handled here anymore.
-        // onPlayerStateChange now advances the queue immediately when a song
-        // ends (regardless of scorer state), so the modal close is purely
-        // cosmetic. Relying on getPlayerState() === 0 at close-time was a bug:
-        // the player transitions away from state 0 as soon as the next song
-        // loads, so handleSongEnded never ran and the queue got stuck.
+        setScoringSong(null);
+        scoringSongRef.current = null;
+
+        if (endedSong) {
+            await queueActions.handleSongEnded(endedSong);
+        }
     };
 
     // Handle video volume change
@@ -1182,17 +1180,49 @@ export default function Room() {
         }
     };
 
-    // Handle microphone volume change for a specific user
-    const handleUserMicVolumeChange = (userId: string, value: number[]) => {
-        const newVolume = value[0];
-        setUserMicVolumes((prev) => ({
-            ...prev,
-            [userId]: newVolume,
-        }));
+    const saveMicEchoLevel = async (value: number[]) => {
+        const level = value[0] ?? 0;
+        setMicEchoLevel(level);
+        if (!firebaseUserId || !roomId) return;
 
-        // If admin has RTC manager and a connection to this user, adjust their volume
-        if (adminRTCManagerRef.current && connectedUsers[userId]) {
-            adminRTCManagerRef.current.setUserVolume(userId, newVolume / 100);
+        try {
+            await updateUserMicEchoLevel(roomId, firebaseUserId, level);
+        } catch (error) {
+            console.error("Could not save microphone echo level:", error);
+            const savedLevel =
+                users.find((user) => user.id === firebaseUserId)?.micEchoLevel ??
+                0;
+            setMicEchoLevel(savedLevel);
+            toast({
+                title: "Echo setting not saved",
+                description: "Please try adjusting it again.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const saveMicVolumeLevel = async (value: number[]) => {
+        const level = normalizeMicVolumeLevel(value[0] ?? DEFAULT_MIC_VOLUME_LEVEL);
+        setMicVolumeLevel(level);
+        if (!firebaseUserId || !roomId) return;
+
+        try {
+            await updateUserMicVolumeLevel(roomId, firebaseUserId, level);
+        } catch (error) {
+            console.error("Could not save microphone volume level:", error);
+            const savedLevel = users.find(
+                (user) => user.id === firebaseUserId
+            )?.micVolumeLevel;
+            setMicVolumeLevel(
+                normalizeMicVolumeLevel(
+                    savedLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                )
+            );
+            toast({
+                title: "Volume setting not saved",
+                description: "Please try adjusting it again.",
+                variant: "destructive",
+            });
         }
     };
 
@@ -1232,21 +1262,6 @@ export default function Room() {
     // Check if there are persistent Firebase errors across multiple hooks
     const hasFirebaseError =
         [combinedError, usersError, roomError].filter(Boolean).length >= 3;
-
-    // Spec 3: detect "TV-like" coarse pointer devices (no mouse). Used to
-    // surface the common-queries fallback list when there's no on-screen
-    // keyboard handy. MUST be declared above any early `return (...)` in the
-    // component body — Rules of Hooks.
-    const [isCoarsePointer, setIsCoarsePointer] = useState(false);
-    useEffect(() => {
-        if (typeof window === "undefined" || !window.matchMedia) return;
-        const mq = window.matchMedia("(pointer: coarse)");
-        setIsCoarsePointer(mq.matches);
-        const onChange = (e: MediaQueryListEvent) =>
-            setIsCoarsePointer(e.matches);
-        mq.addEventListener("change", onChange);
-        return () => mq.removeEventListener("change", onChange);
-    }, []);
 
     // ---- ORDER OF RENDERING CHECKS ----
 
@@ -1388,16 +1403,14 @@ export default function Room() {
         //  3 (buffering)
         //  5 (video cued)
         if (event.data === 0 && isAdmin) {
-            // Song ended — ALWAYS advance the queue first. The score modal can
-            // render the just-ended song from props; it doesn't need the queue
-            // parked on the old entry. (Previously, when the scorer was enabled,
-            // handleSongEnded was deferred to modal-close and gated on
-            // getPlayerState() === 0 — which stopped matching once the next
-            // song loaded, leaving the queue stuck.)
-            await queueActions.handleSongEnded();
-            if (roomData?.scorerEnabled && currentSongCombined) {
-                // Show the score modal for the just-ended song
-                handleShowScore();
+            const endedSong = currentSongCombined;
+            if (!endedSong) return;
+
+            if (roomData?.scorerEnabled) {
+                // Keep the finished song current while it is being scored.
+                handleShowScore(endedSong);
+            } else {
+                await queueActions.handleSongEnded(endedSong);
             }
         } else if (event.data === 1) {
             // Song is playing
@@ -1414,21 +1427,23 @@ export default function Room() {
         }
     };
 
-    const handleCommonQueryPick = (query: string) => {
-        setSearchQuery(query);
-        // Defer to next tick so the input value is committed before we
-        // trigger the search.
-        setTimeout(() => {
-            void handleSearch();
-        }, 0);
-    };
-
     return (
         <main
             className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white"
             ref={mainContainerRef}
         >
             <Toaster />
+
+            {roomData?.reactionsEnabled && (
+                <ReactionOverlay roomId={roomId} isAdmin={isAdmin} />
+            )}
+            {!isAdmin && roomData?.reactionsEnabled && userName.trim() && (
+                <ReactionPicker
+                    roomId={roomId}
+                    userName={userName}
+                    experimental={flags.reactionsExperimental}
+                />
+            )}
 
             {/* Score Display Modal */}
             <ScoreDisplayModal
@@ -1438,7 +1453,7 @@ export default function Room() {
                 currentUser={
                     users.find((user) => user.id === firebaseUserId) || null
                 }
-                currentSong={currentSongCombined}
+                currentSong={scoringSong ?? currentSongCombined}
             />
 
             {/* Header - Hidden in fullscreen mode */}
@@ -1727,6 +1742,17 @@ export default function Room() {
                             )}
                             {/* Fullscreen, Sidebar, and Controls Toggle Buttons */}
                             <div className="absolute top-4 right-4 flex gap-2 z-10">
+                                <div
+                                    role="status"
+                                    aria-label={`${users.length} users in room`}
+                                    className="h-10 flex items-center gap-1.5 rounded-full bg-black/30 px-3 text-white"
+                                >
+                                    <Users
+                                        className="h-4 w-4"
+                                        aria-hidden="true"
+                                    />
+                                    <span aria-hidden="true">{users.length}</span>
+                                </div>
                                 {isAdmin && (
                                     <Button
                                         variant="ghost"
@@ -1790,36 +1816,27 @@ export default function Room() {
                             className="flex-1 flex flex-col h-full"
                         >
                             {" "}
-                            <TabsList
-                                className={cn(
-                                    "grid mb-4",
-                                    isAdmin
-                                        ? roomData?.scorerEnabled
-                                            ? "grid-cols-4" // 4 columns when admin with scoring enabled
-                                            : "grid-cols-3" // 3 columns when admin without scoring
-                                        : roomData?.micFeatureEnabled
-                                        ? roomData?.scorerEnabled
-                                            ? "grid-cols-4" // 4 columns when non-admin with mic and scoring
-                                            : "grid-cols-3" // 3 columns when non-admin with mic only
-                                        : roomData?.scorerEnabled
-                                        ? "grid-cols-3" // 3 columns when non-admin with scoring only
-                                        : "grid-cols-2" // 2 columns when non-admin without mic or scoring
-                                )}
-                            >
-                                <TabsTrigger value="search">Search</TabsTrigger>
-                                <TabsTrigger value="queue">Queue</TabsTrigger>
+                            <TabsList className="flex h-auto w-full flex-nowrap gap-1 mb-2">
+                                <TabsTrigger className="min-w-0 flex-1 px-2" value="search">
+                                    Search
+                                </TabsTrigger>
+                                <TabsTrigger className="min-w-0 flex-1 px-2" value="queue">
+                                    Queue
+                                </TabsTrigger>
                                 {isAdmin && (
-                                    <TabsTrigger value="users">
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="users">
                                         Users
                                     </TabsTrigger>
                                 )}
                                 {roomData?.scorerEnabled && (
-                                    <TabsTrigger value="scores">
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="scores">
                                         Scores
                                     </TabsTrigger>
                                 )}
                                 {!isAdmin && roomData?.micFeatureEnabled && (
-                                    <TabsTrigger value="mic">Mic</TabsTrigger>
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="mic">
+                                        Mic
+                                    </TabsTrigger>
                                 )}
                             </TabsList>
                             <div>
@@ -2097,80 +2114,11 @@ export default function Room() {
                                                 )}
 
                                             {!isSearching && !searchQuery && (
-                                                <div className="space-y-4">
-                                                    <div className="text-center pt-6 text-gray-400">
-                                                        <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                                        <p>
-                                                            Search for your
-                                                            favorite songs to
-                                                            sing
-                                                        </p>
-                                                    </div>
-                                                    {isCoarsePointer && (
-                                                        <div className="px-2">
-                                                            <h4 className="text-sm font-medium text-purple-200 mb-2 px-1">
-                                                                Or pick a popular
-                                                                song:
-                                                            </h4>
-                                                            <RovingList
-                                                                items={
-                                                                    COMMON_KARAOKE_QUERIES
-                                                                }
-                                                                getKey={(q) =>
-                                                                    q.videoId
-                                                                }
-                                                                onActivate={(
-                                                                    q
-                                                                ) =>
-                                                                    handleCommonQueryPick(
-                                                                        q.query
-                                                                    )
-                                                                }
-                                                                className="space-y-2"
-                                                                renderItem={(
-                                                                    q,
-                                                                    _i,
-                                                                    {
-                                                                        itemProps,
-                                                                        isFocused,
-                                                                    }
-                                                                ) => (
-                                                                    <div
-                                                                        {
-                                                                            ...itemProps
-                                                                        }
-                                                                        role="button"
-                                                                        data-testid="common-query"
-                                                                        onClick={() =>
-                                                                            handleCommonQueryPick(
-                                                                                q.query
-                                                                            )
-                                                                        }
-                                                                        className={
-                                                                            "flex items-center gap-3 rounded-lg p-3 border transition-colors " +
-                                                                            (isFocused
-                                                                                ? "border-purple-400 bg-gray-700/90 ring-2 ring-purple-400"
-                                                                                : "border-gray-700 bg-gray-700/70 hover:bg-gray-700/90 focus-within:bg-gray-700/90")
-                                                                        }
-                                                                    >
-                                                                        <Music className="h-5 w-5 text-purple-300 shrink-0" />
-                                                                        <div className="flex flex-col min-w-0">
-                                                                            <p className="text-sm font-medium text-white truncate">
-                                                                                {
-                                                                                    q.title
-                                                                                }
-                                                                            </p>
-                                                                            <p className="text-xs text-gray-300 truncate">
-                                                                                {
-                                                                                    q.artist
-                                                                                }
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            />
-                                                        </div>
-                                                    )}
+                                                <div className="text-center pt-6 text-gray-400">
+                                                    <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                                    <p>
+                                                        Search for your favorite songs to sing
+                                                    </p>
                                                 </div>
                                             )}
                                         </div>
@@ -2189,6 +2137,26 @@ export default function Room() {
                                             </span>
                                         </h3>
                                     </div>
+                                    {currentSongCombined && (
+                                        <div
+                                            className={cn(
+                                                "mb-3 rounded-lg border p-3",
+                                                scoringSong
+                                                    ? "border-amber-400/70 bg-amber-500/10"
+                                                    : "border-purple-400/60 bg-purple-500/10"
+                                            )}
+                                            aria-live="polite"
+                                        >
+                                            <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                                                {scoringSong
+                                                    ? "Scoring completed song"
+                                                    : "Now playing"}
+                                            </p>
+                                            <p className="mt-1 truncate text-sm font-medium text-white">
+                                                {scoringSong?.title ?? currentSongCombined.title}
+                                            </p>
+                                        </div>
+                                    )}
                                     <ScrollArea
                                         orientation="vertical"
                                         className="flex-1 bg-gray-800/50 rounded-lg"
@@ -2375,40 +2343,6 @@ export default function Room() {
                                                                         </span>
                                                                     )}{" "}
                                                             </span>
-                                                            {isAdmin &&
-                                                                user.isMicOn &&
-                                                                !user.isMutedByAdmin && (
-                                                                    <div className="flex items-center ml-2">
-                                                                        <Volume2 className="h-3 w-3 text-gray-400 mr-2" />
-                                                                        <Slider
-                                                                            value={[
-                                                                                userMicVolumes[
-                                                                                    user
-                                                                                        .id
-                                                                                ] ||
-                                                                                    80,
-                                                                            ]}
-                                                                            min={
-                                                                                0
-                                                                            }
-                                                                            max={
-                                                                                100
-                                                                            }
-                                                                            step={
-                                                                                1
-                                                                            }
-                                                                            onValueChange={(
-                                                                                value
-                                                                            ) =>
-                                                                                handleUserMicVolumeChange(
-                                                                                    user.id,
-                                                                                    value
-                                                                                )
-                                                                            }
-                                                                            className="w-24"
-                                                                        />
-                                                                    </div>
-                                                                )}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -2438,6 +2372,10 @@ export default function Room() {
                                                 <div className="space-y-2">
                                                     <h3 className="text-xl font-semibold text-white">
                                                         Phone Microphone
+                                                        <ExperimentalBadge
+                                                            experimental={flags.phoneMicExperimental}
+                                                            className="ml-2 align-middle"
+                                                        />
                                                     </h3>
                                                     <p className="text-gray-400">
                                                         {isMutedByAdmin
@@ -2484,6 +2422,68 @@ export default function Room() {
                                                             : "Tap to turn on"}
                                                     </span>
                                                 </Button>{" "}
+                                                <div className="w-full max-w-xs space-y-3 text-left">
+                                                    <div className="flex items-center justify-between text-sm text-white">
+                                                        <span>Mic volume</span>
+                                                        <span>{micVolumeLevel}%</span>
+                                                    </div>
+                                                    <Slider
+                                                        aria-label="Microphone volume"
+                                                        value={[micVolumeLevel]}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
+                                                            setMicVolumeLevel(
+                                                                normalizeMicVolumeLevel(
+                                                                    value[0] ??
+                                                                        DEFAULT_MIC_VOLUME_LEVEL
+                                                                )
+                                                            )
+                                                        }
+                                                        onValueCommit={
+                                                            saveMicVolumeLevel
+                                                        }
+                                                        className="w-full"
+                                                    />
+                                                    <p className="text-xs text-gray-400">
+                                                        Controls how loud your
+                                                        mic sounds to the host.
+                                                    </p>
+                                                </div>
+                                                <div className="w-full max-w-xs space-y-3 text-left">
+                                                    <div className="flex items-center justify-between text-sm text-white">
+                                                        <span>
+                                                            Echo
+                                                        </span>
+                                                        <span>{micEchoLevel}%</span>
+                                                    </div>
+                                                    <Slider
+                                                        aria-label="Echo level"
+                                                        value={[micEchoLevel]}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
+                                                            setMicEchoLevel(
+                                                                value[0] ?? 0
+                                                            )
+                                                        }
+                                                        onValueCommit={
+                                                            saveMicEchoLevel
+                                                        }
+                                                        className="w-full"
+                                                    />
+                                                    <p className="text-xs text-gray-400">
+                                                        The host hears this
+                                                        effect. Your mic stays
+                                                        direct.
+                                                    </p>
+                                                </div>
                                                 {isMutedByAdmin && (
                                                     <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-white max-w-xs mx-auto mt-4">
                                                         <p>
@@ -2534,16 +2534,17 @@ export default function Room() {
                                 {roomData?.scorerEnabled && (
                                     <TabsContent
                                         value="scores"
-                                        className="flex-1 flex flex-col overflow-hidden"
+                                        className="mt-0 flex-1 flex min-w-0 flex-col overflow-hidden"
                                     >
-                                        <div className="flex flex-col mb-4">
-                                            <div className="flex items-center mb-2">
+                                        <div className="flex flex-col mb-2">
+                                            <div className="flex items-center mb-1">
                                                 <Trophy className="h-5 w-5 text-yellow-400 mr-2" />
                                                 <h3 className="text-lg font-medium">
                                                     Karaoke Champions
-                                                    <span className="ml-2 text-xs text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full">
-                                                        BETA
-                                                    </span>
+                                                    <ExperimentalBadge
+                                                        experimental={flags.scorerExperimental}
+                                                        className="ml-2 align-middle"
+                                                    />
                                                 </h3>
                                             </div>
                                             <p className="text-xs text-gray-400">
@@ -2552,9 +2553,9 @@ export default function Room() {
                                         </div>
                                         <ScrollArea
                                             orientation="vertical"
-                                            className="flex-1 bg-gray-800/30 rounded-lg p-1"
+                                            className="min-w-0 flex-1 bg-gray-800/30 rounded-lg p-1"
                                         >
-                                            <div className="px-1">
+                                            <div className="min-w-0 overflow-hidden px-1">
                                                 <HighScores roomId={roomId} />
                                             </div>
                                         </ScrollArea>

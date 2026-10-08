@@ -7,6 +7,7 @@ import {
     remove,
     push,
     get,
+    update,
     query,
     orderByChild,
     equalTo,
@@ -14,9 +15,17 @@ import {
 } from "firebase/database";
 import { rtdb } from "./firebase";
 import {
-    createLowLatencyAudioStream,
-    optimizePeerConnectionForAudio,
-} from "./audio-optimizer";
+    addMicrophoneTracks,
+    attachRemoteAudioStream,
+    createMicrophoneEchoEffect,
+    DEFAULT_MIC_VOLUME_LEVEL,
+    detachRemoteAudioElement,
+    getIncomingAudioDiagnostics,
+    normalizeMicEchoLevel,
+    normalizeMicVolumeLevel,
+    micVolumeLevelToGain,
+    stopAudioTracks,
+} from "./microphone-audio";
 
 /**
  * Signal types for WebRTC communication
@@ -43,89 +52,14 @@ interface Signal {
  * Creates an RTCPeerConnection with the appropriate configuration
  */
 export function createPeerConnection(): RTCPeerConnection {
-    const configuration: RTCConfiguration = {
+    return new RTCPeerConnection({
         iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
             { urls: "stun:stun2.l.google.com:19302" },
         ],
         iceCandidatePoolSize: 10,
-    };
-
-    const pc = new RTCPeerConnection(configuration);
-
-    // Optimize for audio performance with minimal latency
-    try {
-        // Set codec preferences to favor Opus with low delay settings
-        if (
-            RTCRtpSender.getCapabilities &&
-            RTCRtpSender.getCapabilities("audio")
-        ) {
-            const transceivers = pc.getTransceivers();
-            const capabilities = RTCRtpSender.getCapabilities("audio");
-
-            if (capabilities && capabilities.codecs) {
-                // Prioritize Opus codec which is better for low latency audio
-                const preferredCodecs = capabilities.codecs
-                    .filter(
-                        (codec) => codec.mimeType.toLowerCase() === "audio/opus"
-                    )
-                    .concat(
-                        capabilities.codecs.filter(
-                            (codec) =>
-                                codec.mimeType.toLowerCase() !== "audio/opus"
-                        )
-                    );
-
-                transceivers.forEach((transceiver) => {
-                    if (
-                        transceiver.sender.track &&
-                        transceiver.sender.track.kind === "audio"
-                    ) {
-                        try {
-                            transceiver.setCodecPreferences(preferredCodecs);
-                        } catch (e) {
-                            console.warn("Failed to set codec preferences:", e);
-                        }
-                    }
-                });
-            }
-        }
-
-        // Set parameters to prioritize audio packets (Chrome-specific)
-        pc.addEventListener("track", (event) => {
-            if (event.track.kind === "audio") {
-                const audioSender = pc
-                    .getSenders()
-                    .find(
-                        (sender) =>
-                            sender.track && sender.track.kind === "audio"
-                    );
-                if (audioSender && audioSender.setParameters) {
-                    const params = audioSender.getParameters();
-                    if (params.encodings && params.encodings.length > 0) {
-                        // Set high priority for all audio tracks
-                        params.encodings.forEach((encoding) => {
-                            encoding.priority = "high";
-                            encoding.networkPriority = "high";
-                        });
-                        audioSender
-                            .setParameters(params)
-                            .catch((e) =>
-                                console.warn(
-                                    "Failed to set sender parameters for priority:",
-                                    e
-                                )
-                            );
-                    }
-                }
-            }
-        });
-    } catch (err) {
-        console.warn("Could not set codec preferences for low latency:", err);
-    }
-
-    return pc;
+    });
 }
 
 /**
@@ -297,6 +231,28 @@ export async function updateUserMicStatus(
     }
 }
 
+export async function updateUserMicEchoLevel(
+    roomId: string,
+    userId: string,
+    level: number
+): Promise<void> {
+    const userRef = ref(rtdb, `rooms/${roomId}/users/${userId}`);
+    const snapshot = await get(userRef);
+    if (!snapshot.exists()) throw new Error("Microphone user no longer exists");
+    await update(userRef, { micEchoLevel: normalizeMicEchoLevel(level) });
+}
+
+export async function updateUserMicVolumeLevel(
+    roomId: string,
+    userId: string,
+    level: number
+): Promise<void> {
+    const userRef = ref(rtdb, `rooms/${roomId}/users/${userId}`);
+    const snapshot = await get(userRef);
+    if (!snapshot.exists()) throw new Error("Microphone user no longer exists");
+    await update(userRef, { micVolumeLevel: normalizeMicVolumeLevel(level) });
+}
+
 /**
  * Updates a user's muted status in Firebase (admin only)
  * @param roomId The ID of the room
@@ -360,26 +316,10 @@ export class MicrophoneRTCManager {
             }
         }
 
-        // Process the audio stream for low latency
-        const optimizedStream = createLowLatencyAudioStream(stream, {
-            bufferSize: 256, // Low buffer size for minimal latency
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-        });
-
-        this.localStream = optimizedStream;
+        this.localStream = stream;
         this.peerConnection = createPeerConnection();
 
-        // Apply WebRTC optimizations for low latency audio
-        optimizePeerConnectionForAudio(this.peerConnection);
-
-        // Add all tracks from the optimized stream to the peer connection
-        optimizedStream.getTracks().forEach((track) => {
-            if (this.peerConnection && this.localStream) {
-                this.peerConnection.addTrack(track, this.localStream);
-            }
-        });
+        addMicrophoneTracks(this.peerConnection, stream);
 
         // Listen for ICE candidates and send them to the admin
         this.peerConnection.onicecandidate = async (event) => {
@@ -497,17 +437,8 @@ export class MicrophoneRTCManager {
             this.peerConnection = null;
         }
 
-        // Clean up audio processing resources
         if (this.localStream) {
-            // Stop all tracks
-            this.localStream.getTracks().forEach((track) => track.stop());
-
-            // Clean up any audio context associated with the stream
-            if ((this.localStream as any)._audioContext) {
-                (this.localStream as any)._audioContext.close();
-                (this.localStream as any)._audioContext = null;
-            }
-
+            stopAudioTracks(this.localStream);
             this.localStream = null;
         }
 
@@ -521,6 +452,14 @@ export class MicrophoneRTCManager {
  */
 export class AdminRTCManager {
     private peerConnections: Map<string, RTCPeerConnection> = new Map();
+    private diagnosticTimers: Map<string, number> = new Map();
+    private userEchoLevels: Map<string, number> = new Map();
+    private userMicVolumes: Map<string, number> = new Map();
+    private echoEffects = new Map<
+        string,
+        ReturnType<typeof createMicrophoneEchoEffect>
+    >();
+    private echoAudioContext: AudioContext | null = null;
     private roomId: string;
     private adminId: string = "admin";
     private userStreams: Map<string, MediaStream> = new Map();
@@ -594,64 +533,57 @@ export class AdminRTCManager {
         if (!this.peerConnections.has(userId)) {
             const peerConnection = createPeerConnection();
 
-            // Apply audio optimizations for low latency
-            optimizePeerConnectionForAudio(peerConnection);
-
             this.peerConnections.set(userId, peerConnection); // Set up event handlers for this connection
             peerConnection.ontrack = (event) => {
                 const [stream] = event.streams;
                 this.userStreams.set(userId, stream);
 
-                // Create audio element with optimized settings for low latency playback
-                const existingAudioElement = document.getElementById(
+                let audioElement = document.getElementById(
                     `audio-${userId}`
                 ) as HTMLAudioElement;
-                if (!existingAudioElement) {
-                    const audioElement = document.createElement("audio");
+                if (!audioElement) {
+                    audioElement = document.createElement("audio");
                     audioElement.id = `audio-${userId}`;
-                    audioElement.autoplay = true;
-                    // Set attributes for low latency
-                    audioElement.setAttribute("webkit-playsinline", "true");
-                    audioElement.setAttribute("playsinline", "true");
-                    audioElement.crossOrigin = "anonymous";
                     audioElement.volume = 1.0;
-
-                    // Critical for low latency
-                    try {
-                        // These properties help reduce audio output latency
-                        if ("mozFrameBufferLength" in audioElement) {
-                            // Firefox specific
-                            (audioElement as any).mozFrameBufferLength = 256;
-                        }
-
-                        // Modern browsers support these settings
-                        audioElement.preservesPitch = false;
-
-                        // Decrease output buffering to minimum acceptable value
-                        const audioContext = new (window.AudioContext ||
-                            (window as any).webkitAudioContext)();
-                        const source =
-                            audioContext.createMediaStreamSource(stream);
-                        const destination =
-                            audioContext.createMediaStreamDestination();
-
-                        // Connect directly with minimal processing
-                        source.connect(destination);
-
-                        // Use the processed stream
-                        audioElement.srcObject = destination.stream;
-
-                        // Keep reference to prevent garbage collection
-                        (audioElement as any)._audioContext = audioContext;
-                    } catch (e) {
-                        console.warn(
-                            "Advanced audio optimization failed, using standard method:",
-                            e
-                        );
-                        audioElement.srcObject = stream;
-                    }
-
                     document.body.appendChild(audioElement);
+                }
+                attachRemoteAudioStream(audioElement, stream);
+                this.setUserVolume(
+                    userId,
+                    this.userMicVolumes.get(userId) ??
+                        micVolumeLevelToGain(DEFAULT_MIC_VOLUME_LEVEL)
+                );
+                this.setUserMicEchoLevel(
+                    userId,
+                    this.userEchoLevels.get(userId) ?? 0
+                );
+
+                if (process.env.NODE_ENV === "development") {
+                    const previousTimer = this.diagnosticTimers.get(userId);
+                    if (previousTimer !== undefined) {
+                        window.clearTimeout(previousTimer);
+                    }
+                    const timer = window.setTimeout(() => {
+                        this.diagnosticTimers.delete(userId);
+                        if (this.peerConnections.get(userId) !== peerConnection) {
+                            return;
+                        }
+                        void peerConnection
+                            .getStats()
+                            .then((stats) => {
+                                console.info("Incoming microphone diagnostics", {
+                                    userId,
+                                    ...getIncomingAudioDiagnostics(stats.values()),
+                                });
+                            })
+                            .catch((error: unknown) => {
+                                console.warn(
+                                    "Could not read incoming microphone diagnostics:",
+                                    error
+                                );
+                            });
+                    }, 5000);
+                    this.diagnosticTimers.set(userId, timer);
                 }
 
                 if (this.onUserStreamCallback) {
@@ -725,21 +657,6 @@ export class AdminRTCManager {
             // This ensures they can't turn it back on while muted
             await updateUserMicStatus(this.roomId, userId, false);
 
-            // Stop the audio playback for this user on the admin side
-            const audioElement = document.getElementById(
-                `audio-${userId}`
-            ) as HTMLAudioElement;
-            if (audioElement) {
-                // Pause and remove the audio element
-                audioElement.pause();
-                if (audioElement.srcObject) {
-                    const stream = audioElement.srcObject as MediaStream;
-                    stream.getTracks().forEach((track) => track.stop());
-                }
-                audioElement.srcObject = null;
-                audioElement.remove();
-            }
-
             // Close and recreate the peer connection to ensure complete disconnection
             this.removeUserConnection(userId);
         } catch (error) {
@@ -777,40 +694,32 @@ export class AdminRTCManager {
      * @param userId The ID of the user
      */
     private removeUserConnection(userId: string): void {
-        const peerConnection = this.peerConnections.get(userId);
-        if (peerConnection) {
-            peerConnection.close();
-            this.peerConnections.delete(userId);
+        const diagnosticTimer = this.diagnosticTimers.get(userId);
+        if (diagnosticTimer !== undefined) {
+            window.clearTimeout(diagnosticTimer);
+            this.diagnosticTimers.delete(userId);
         }
 
-        const stream = this.userStreams.get(userId);
-        if (stream) {
-            stream.getTracks().forEach((track) => track.stop());
-            this.userStreams.delete(userId);
+        const peerConnection = this.peerConnections.get(userId);
+        const hadStream = this.userStreams.has(userId);
+        this.peerConnections.delete(userId);
+        this.userStreams.delete(userId);
+        this.echoEffects.get(userId)?.disconnect();
+        this.echoEffects.delete(userId);
+        const audioElement = document.getElementById(
+            `audio-${userId}`
+        ) as HTMLAudioElement | null;
+        if (audioElement) {
+            detachRemoteAudioElement(audioElement);
+        }
 
-            // Clean up audio element and any audio contexts
-            const audioElement = document.getElementById(
-                `audio-${userId}`
-            ) as HTMLAudioElement;
-            if (audioElement) {
-                if (audioElement.srcObject) {
-                    const stream = audioElement.srcObject as MediaStream;
-                    stream.getTracks().forEach((track) => track.stop());
-                }
+        peerConnection?.close();
 
-                // Clean up any audio context
-                if ((audioElement as any)._audioContext) {
-                    (audioElement as any)._audioContext.close();
-                    (audioElement as any)._audioContext = null;
-                }
-
-                audioElement.srcObject = null;
-                audioElement.remove();
-            }
-
-            if (this.onUserStreamCallback) {
-                this.onUserStreamCallback(userId, null, "remove");
-            }
+        if (
+            (peerConnection || hadStream || audioElement) &&
+            this.onUserStreamCallback
+        ) {
+            this.onUserStreamCallback(userId, null, "remove");
         }
     }
 
@@ -820,15 +729,56 @@ export class AdminRTCManager {
      * @param volume The volume level (0-1)
      */
     public setUserVolume(userId: string, volume: number): void {
-        // Find the audio element for this user and adjust its volume
+        const safeVolume = micVolumeLevelToGain(volume * 100);
+        this.userMicVolumes.set(userId, safeVolume);
         const audioElement = document.getElementById(
             `audio-${userId}`
         ) as HTMLAudioElement;
 
         if (audioElement) {
-            // Ensure volume is between 0 and 1
-            const safeVolume = Math.max(0, Math.min(1, volume));
             audioElement.volume = safeVolume;
+            this.echoEffects
+                .get(userId)
+                ?.setLevel(this.userEchoLevels.get(userId) ?? 0, safeVolume);
+        }
+    }
+
+    public setUserMicEchoLevel(userId: string, level: number): void {
+        const safeLevel = normalizeMicEchoLevel(level);
+        this.userEchoLevels.set(userId, safeLevel);
+
+        const currentEffect = this.echoEffects.get(userId);
+        if (safeLevel === 0) {
+            currentEffect?.disconnect();
+            this.echoEffects.delete(userId);
+            return;
+        }
+
+        const stream = this.userStreams.get(userId);
+        if (!stream) return;
+
+        try {
+            if (!this.echoAudioContext || this.echoAudioContext.state === "closed") {
+                this.echoAudioContext = new AudioContext({
+                    latencyHint: "interactive",
+                });
+            }
+            if (this.echoAudioContext.state === "suspended") {
+                void this.echoAudioContext.resume().catch((error: unknown) => {
+                    console.warn("Could not resume microphone echo audio:", error);
+                });
+            }
+
+            const effect =
+                currentEffect ??
+                createMicrophoneEchoEffect(this.echoAudioContext, stream);
+            this.echoEffects.set(userId, effect);
+            effect.setLevel(
+                safeLevel,
+                this.userMicVolumes.get(userId) ?? 1
+            );
+        } catch (error) {
+            console.error("Could not apply microphone echo:", error);
         }
     }
 
@@ -842,16 +792,24 @@ export class AdminRTCManager {
             this.unsubscribeFromSignals = null;
         }
 
-        // Close all peer connections
-        for (const [userId, peerConnection] of this.peerConnections.entries()) {
-            peerConnection.close();
-            if (this.onUserStreamCallback) {
-                this.onUserStreamCallback(userId, null, "remove");
-            }
+        // Remove every user's playback element and close their peer connection.
+        for (const userId of this.peerConnections.keys()) {
+            this.removeUserConnection(userId);
         }
 
-        // Clear the maps
-        this.peerConnections.clear();
+        // Also clear streams that arrived before their peer connection was stored.
         this.userStreams.clear();
+        for (const effect of this.echoEffects.values()) {
+            effect.disconnect();
+        }
+        this.echoEffects.clear();
+        this.userEchoLevels.clear();
+        this.userMicVolumes.clear();
+        if (this.echoAudioContext && this.echoAudioContext.state !== "closed") {
+            void this.echoAudioContext.close().catch((error: unknown) => {
+                console.warn("Could not close microphone echo audio:", error);
+            });
+        }
+        this.echoAudioContext = null;
     }
 }

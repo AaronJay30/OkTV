@@ -29,5 +29,6 @@ export function normalizeRoom(roomId: string, room: unknown) {
         scores: value.scores && typeof value.scores === "object" ? value.scores : {},
         micFeatureEnabled: Boolean(value.micFeatureEnabled),
         scorerEnabled: Boolean(value.scorerEnabled),
+        reactionsEnabled: Boolean(value.reactionsEnabled),
     };
 }
