@@ -22,15 +22,18 @@ export type ScoreAnimationCallbacks = {
     onComplete?: (finalScore: number) => void;
 };
 
+export const SCORE_REVEAL_DURATION_MS = 4000;
+export const SCORE_MODAL_DURATION_MS = 16000;
+
 /**
  * Handles the animation logic for revealing the score.
  * @param finalScore - The predetermined final score to display
- * @param duration - Animation duration in ms (default 3000ms)
+ * @param duration - Animation duration in ms (default 4000ms)
  * @param callbacks - Callbacks for animation events
  */
 export const animateScoreReveal = (
     finalScore: number,
-    duration: number = 3000,
+    duration: number = SCORE_REVEAL_DURATION_MS,
     callbacks?: ScoreAnimationCallbacks
 ): void => {
     // Start time for the animation

@@ -226,7 +226,7 @@ export function useFirebaseRoom(
 
 // Helper type for actions returned by useQueueAndCurrentSong
 export interface QueueActions {
-    handleSongEnded: () => Promise<void>;
+    handleSongEnded: (endedSong?: Song) => Promise<void>;
     handleSkipSong: () => Promise<void>;
     handleRemoveSpecificSong: (
         songId: string,
@@ -263,9 +263,13 @@ export function useQueueAndCurrentSong(
     const loading = queueLoading || currentSongLoading || playerStateLoading;
     const error = queueError || currentSongError || playerStateError;
 
-    const handleSongEnded = async () => {
-        if (!isAdmin || !currentSong) return;
-        await advanceRoomQueue(roomId, currentSong);
+    const handleSongEnded = async (endedSong?: Song) => {
+        if (!isAdmin) return;
+
+        const songToAdvance = endedSong ?? currentSong;
+        if (!songToAdvance) return;
+
+        await advanceRoomQueue(roomId, songToAdvance);
     };
 
     const handleSkipSong = async () => {

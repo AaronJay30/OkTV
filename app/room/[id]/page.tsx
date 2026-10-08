@@ -264,6 +264,8 @@ export default function Room() {
 
     // Scoring feature states
     const [showScoreModal, setShowScoreModal] = useState(false);
+    const [scoringSong, setScoringSong] = useState<Song | null>(null);
+    const scoringSongRef = useRef<Song | null>(null);
     const [currentScore, setCurrentScore] = useState(0);
     const [showHighScores, setShowHighScores] = useState(false);
 
@@ -276,7 +278,7 @@ export default function Room() {
     });
     useTvBack({
         isOpen: showScoreModal,
-        onClose: () => setShowScoreModal(false),
+        onClose: () => undefined,
     });
     useTvBack({
         isOpen: showHighScores,
@@ -1137,28 +1139,30 @@ export default function Room() {
 
     // Handle skip
     const handleSkip = async () => {
-        if (isAdmin && currentSongCombined) {
+        if (isAdmin && currentSongCombined && !scoringSongRef.current) {
             await queueActions.handleSongEnded(); // Use new action
         }
     };
 
     // Handle scoring performance
-    const handleShowScore = () => {
-        if (roomData?.scorerEnabled && currentSongCombined) {
-            // Generate a score and show the modal
+    const handleShowScore = (endedSong: Song) => {
+        if (roomData?.scorerEnabled && !scoringSongRef.current) {
+            scoringSongRef.current = endedSong;
+            setScoringSong(endedSong);
             setShowScoreModal(true);
         }
     };
 
-    // Handle closing the score modal
-    const handleCloseScoreModal = () => {
+    // Finish scoring before advancing to the next song.
+    const handleCloseScoreModal = async () => {
+        const endedSong = scoringSongRef.current;
         setShowScoreModal(false);
-        // NOTE: Queue advancement intentionally NOT handled here anymore.
-        // onPlayerStateChange now advances the queue immediately when a song
-        // ends (regardless of scorer state), so the modal close is purely
-        // cosmetic. Relying on getPlayerState() === 0 at close-time was a bug:
-        // the player transitions away from state 0 as soon as the next song
-        // loads, so handleSongEnded never ran and the queue got stuck.
+        setScoringSong(null);
+        scoringSongRef.current = null;
+
+        if (endedSong) {
+            await queueActions.handleSongEnded(endedSong);
+        }
     };
 
     // Handle video volume change
@@ -1390,16 +1394,14 @@ export default function Room() {
         //  3 (buffering)
         //  5 (video cued)
         if (event.data === 0 && isAdmin) {
-            // Song ended — ALWAYS advance the queue first. The score modal can
-            // render the just-ended song from props; it doesn't need the queue
-            // parked on the old entry. (Previously, when the scorer was enabled,
-            // handleSongEnded was deferred to modal-close and gated on
-            // getPlayerState() === 0 — which stopped matching once the next
-            // song loaded, leaving the queue stuck.)
-            await queueActions.handleSongEnded();
-            if (roomData?.scorerEnabled && currentSongCombined) {
-                // Show the score modal for the just-ended song
-                handleShowScore();
+            const endedSong = currentSongCombined;
+            if (!endedSong) return;
+
+            if (roomData?.scorerEnabled) {
+                // Keep the finished song current while it is being scored.
+                handleShowScore(endedSong);
+            } else {
+                await queueActions.handleSongEnded(endedSong);
             }
         } else if (event.data === 1) {
             // Song is playing
@@ -1432,7 +1434,9 @@ export default function Room() {
         >
             <Toaster />
 
-            {roomData?.reactionsEnabled && <ReactionOverlay roomId={roomId} />}
+            {roomData?.reactionsEnabled && (
+                <ReactionOverlay roomId={roomId} isAdmin={isAdmin} />
+            )}
             {!isAdmin && roomData?.reactionsEnabled && userName.trim() && (
                 <ReactionPicker roomId={roomId} userName={userName} />
             )}
@@ -1445,7 +1449,7 @@ export default function Room() {
                 currentUser={
                     users.find((user) => user.id === firebaseUserId) || null
                 }
-                currentSong={currentSongCombined}
+                currentSong={scoringSong ?? currentSongCombined}
             />
 
             {/* Header - Hidden in fullscreen mode */}
@@ -2196,6 +2200,26 @@ export default function Room() {
                                             </span>
                                         </h3>
                                     </div>
+                                    {currentSongCombined && (
+                                        <div
+                                            className={cn(
+                                                "mb-3 rounded-lg border p-3",
+                                                scoringSong
+                                                    ? "border-amber-400/70 bg-amber-500/10"
+                                                    : "border-purple-400/60 bg-purple-500/10"
+                                            )}
+                                            aria-live="polite"
+                                        >
+                                            <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                                                {scoringSong
+                                                    ? "Scoring completed song"
+                                                    : "Now playing"}
+                                            </p>
+                                            <p className="mt-1 truncate text-sm font-medium text-white">
+                                                {scoringSong?.title ?? currentSongCombined.title}
+                                            </p>
+                                        </div>
+                                    )}
                                     <ScrollArea
                                         orientation="vertical"
                                         className="flex-1 bg-gray-800/50 rounded-lg"

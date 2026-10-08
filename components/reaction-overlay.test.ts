@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/firebase", () => ({ rtdb: {} }));
-import { getVisibleReactions } from "../lib/reaction-utils";
+import {
+    getReactionPosition,
+    getVisibleReactions,
+} from "../lib/reaction-utils";
 
 describe("getVisibleReactions", () => {
     it("keeps every recent reaction, including rapid bursts", () => {
@@ -23,5 +26,19 @@ describe("getVisibleReactions", () => {
         expect(getVisibleReactions(reactions, 10_000).map((item) => item.id)).toEqual([
             "new",
         ]);
+    });
+});
+
+describe("getReactionPosition", () => {
+    it("keeps reactions centered with only a small horizontal variation", () => {
+        const position = getReactionPosition(
+            { id: "reaction", emoji: "👏", userName: "Alex", createdAt: 10_000 },
+            0
+        );
+
+        expect(Number.parseInt(position.left, 10)).toBeGreaterThanOrEqual(10);
+        expect(Number.parseInt(position.left, 10)).toBeLessThanOrEqual(90);
+        expect(position.offset).toBeGreaterThanOrEqual(-12);
+        expect(position.offset).toBeLessThanOrEqual(12);
     });
 });

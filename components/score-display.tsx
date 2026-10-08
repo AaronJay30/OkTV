@@ -8,13 +8,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Trophy, Music, Star } from "lucide-react";
 import { saveScore } from "@/lib/firebase-service";
 import {
     animateScoreReveal,
     getPerformanceRating,
     generatePerformanceScore,
+    SCORE_MODAL_DURATION_MS,
+    SCORE_REVEAL_DURATION_MS,
 } from "@/lib/scoring-service";
 import type { User, Song } from "@/types/room";
 
@@ -32,7 +33,6 @@ interface ScoreDisplayModalProps {
     roomId: string;
     currentUser: User | null;
     currentSong: Song | null;
-    handleSongEnded?: () => void; // Added optional prop for handleSongEnded
 }
 
 export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
@@ -41,7 +41,6 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
     roomId,
     currentUser,
     currentSong,
-    handleSongEnded,
 }) => {
     const [score, setScore] = useState<number>(0);
     const [isAnimating, setIsAnimating] = useState<boolean>(false);
@@ -73,6 +72,13 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         }
     }, [open]);
 
+    useEffect(() => {
+        if (!open) return;
+
+        const timer = window.setTimeout(handleClose, SCORE_MODAL_DURATION_MS);
+        return () => window.clearTimeout(timer);
+    }, [open]);
+
     const startScoreAnimation = () => {
         setIsAnimating(true);
         setIsCompleted(false);
@@ -89,7 +95,7 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         // Animate the score
         animateScoreReveal(
             finalScore,
-            3000, // 3 seconds animation
+            SCORE_REVEAL_DURATION_MS,
             {
                 onStart: () => {
                     setIsAnimating(true);
@@ -129,13 +135,16 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
         setIsAnimating(false);
         setIsCompleted(false);
         onClose(); // Call the parent's onClose function
-
-        if (handleSongEnded) handleSongEnded();
     };
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
-            <DialogContent className="bg-gray-900 border-purple-500 text-white max-w-md mx-auto">
+            <DialogContent
+                showCloseButton={false}
+                onEscapeKeyDown={(event) => event.preventDefault()}
+                onPointerDownOutside={(event) => event.preventDefault()}
+                className="bg-gray-900 border-purple-500 text-white max-w-md mx-auto"
+            >
                 <DialogHeader>
                     <DialogTitle className="text-2xl text-center text-purple-500 flex items-center justify-center gap-2">
                         <Trophy className="h-6 w-6 text-yellow-400" />
@@ -215,14 +224,6 @@ export const ScoreDisplayModal: React.FC<ScoreDisplayModalProps> = ({
                     </AnimatePresence>
                 </div>
 
-                <div className="flex justify-center">
-                    <Button
-                        onClick={handleClose}
-                        className="bg-purple-600 hover:bg-purple-500"
-                    >
-                        Close
-                    </Button>
-                </div>
             </DialogContent>
         </Dialog>
     );

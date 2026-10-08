@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generatePerformanceScore, getPerformanceRating } from "./scoring-service";
+import {
+    generatePerformanceScore,
+    getPerformanceRating,
+    SCORE_MODAL_DURATION_MS,
+    SCORE_REVEAL_DURATION_MS,
+} from "./scoring-service";
 
 describe("generatePerformanceScore", () => {
     it.each([
@@ -23,6 +28,14 @@ describe("generatePerformanceScore", () => {
 });
 
 describe("getPerformanceRating", () => {
+    it("uses a four-second score reveal", () => {
+        expect(SCORE_REVEAL_DURATION_MS).toBe(4000);
+    });
+
+    it("keeps the score modal open for the full scoring sound", () => {
+        expect(SCORE_MODAL_DURATION_MS).toBe(16000);
+    });
+
     it("keeps the rating bands aligned with the score range", () => {
         expect(getPerformanceRating(70)).toBe("Nice Performance!");
         expect(getPerformanceRating(90)).toBe("Amazing Performance!");
