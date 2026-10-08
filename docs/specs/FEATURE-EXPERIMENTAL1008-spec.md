@@ -1,8 +1,8 @@
 # Feature Experimental Labels — Specification
 
-**Status:** Approved  
-**Security priority:** Standard — this changes admin configuration and UI labels, but introduces no new sensitive data or authorization roles.  
-**Complexity:** S  
+**Status:** Approved
+**Security priority:** Standard — this changes admin configuration and UI labels, but introduces no new sensitive data or authorization roles.
+**Complexity:** S
 **Data sensitivity:** Internal
 
 ## User story
