@@ -15,6 +15,8 @@ import {
 import { rtdb } from "./firebase";
 import {
     addMicrophoneTracks,
+    attachRemoteAudioStream,
+    detachRemoteAudioElement,
     stopAudioTracks,
 } from "./microphone-audio";
 
@@ -499,57 +501,16 @@ export class AdminRTCManager {
                 const [stream] = event.streams;
                 this.userStreams.set(userId, stream);
 
-                // Create audio element with optimized settings for low latency playback
-                const existingAudioElement = document.getElementById(
+                let audioElement = document.getElementById(
                     `audio-${userId}`
                 ) as HTMLAudioElement;
-                if (!existingAudioElement) {
-                    const audioElement = document.createElement("audio");
+                if (!audioElement) {
+                    audioElement = document.createElement("audio");
                     audioElement.id = `audio-${userId}`;
-                    audioElement.autoplay = true;
-                    // Set attributes for low latency
-                    audioElement.setAttribute("webkit-playsinline", "true");
-                    audioElement.setAttribute("playsinline", "true");
-                    audioElement.crossOrigin = "anonymous";
                     audioElement.volume = 1.0;
-
-                    // Critical for low latency
-                    try {
-                        // These properties help reduce audio output latency
-                        if ("mozFrameBufferLength" in audioElement) {
-                            // Firefox specific
-                            (audioElement as any).mozFrameBufferLength = 256;
-                        }
-
-                        // Modern browsers support these settings
-                        audioElement.preservesPitch = false;
-
-                        // Decrease output buffering to minimum acceptable value
-                        const audioContext = new (window.AudioContext ||
-                            (window as any).webkitAudioContext)();
-                        const source =
-                            audioContext.createMediaStreamSource(stream);
-                        const destination =
-                            audioContext.createMediaStreamDestination();
-
-                        // Connect directly with minimal processing
-                        source.connect(destination);
-
-                        // Use the processed stream
-                        audioElement.srcObject = destination.stream;
-
-                        // Keep reference to prevent garbage collection
-                        (audioElement as any)._audioContext = audioContext;
-                    } catch (e) {
-                        console.warn(
-                            "Advanced audio optimization failed, using standard method:",
-                            e
-                        );
-                        audioElement.srcObject = stream;
-                    }
-
                     document.body.appendChild(audioElement);
                 }
+                attachRemoteAudioStream(audioElement, stream);
 
                 if (this.onUserStreamCallback) {
                     this.onUserStreamCallback(userId, stream, "add");
@@ -622,21 +583,6 @@ export class AdminRTCManager {
             // This ensures they can't turn it back on while muted
             await updateUserMicStatus(this.roomId, userId, false);
 
-            // Stop the audio playback for this user on the admin side
-            const audioElement = document.getElementById(
-                `audio-${userId}`
-            ) as HTMLAudioElement;
-            if (audioElement) {
-                // Pause and remove the audio element
-                audioElement.pause();
-                if (audioElement.srcObject) {
-                    const stream = audioElement.srcObject as MediaStream;
-                    stream.getTracks().forEach((track) => track.stop());
-                }
-                audioElement.srcObject = null;
-                audioElement.remove();
-            }
-
             // Close and recreate the peer connection to ensure complete disconnection
             this.removeUserConnection(userId);
         } catch (error) {
@@ -675,39 +621,23 @@ export class AdminRTCManager {
      */
     private removeUserConnection(userId: string): void {
         const peerConnection = this.peerConnections.get(userId);
-        if (peerConnection) {
-            peerConnection.close();
-            this.peerConnections.delete(userId);
+        const hadStream = this.userStreams.has(userId);
+        this.peerConnections.delete(userId);
+        this.userStreams.delete(userId);
+        const audioElement = document.getElementById(
+            `audio-${userId}`
+        ) as HTMLAudioElement | null;
+        if (audioElement) {
+            detachRemoteAudioElement(audioElement);
         }
 
-        const stream = this.userStreams.get(userId);
-        if (stream) {
-            stream.getTracks().forEach((track) => track.stop());
-            this.userStreams.delete(userId);
+        peerConnection?.close();
 
-            // Clean up audio element and any audio contexts
-            const audioElement = document.getElementById(
-                `audio-${userId}`
-            ) as HTMLAudioElement;
-            if (audioElement) {
-                if (audioElement.srcObject) {
-                    const stream = audioElement.srcObject as MediaStream;
-                    stream.getTracks().forEach((track) => track.stop());
-                }
-
-                // Clean up any audio context
-                if ((audioElement as any)._audioContext) {
-                    (audioElement as any)._audioContext.close();
-                    (audioElement as any)._audioContext = null;
-                }
-
-                audioElement.srcObject = null;
-                audioElement.remove();
-            }
-
-            if (this.onUserStreamCallback) {
-                this.onUserStreamCallback(userId, null, "remove");
-            }
+        if (
+            (peerConnection || hadStream || audioElement) &&
+            this.onUserStreamCallback
+        ) {
+            this.onUserStreamCallback(userId, null, "remove");
         }
     }
 
@@ -739,16 +669,12 @@ export class AdminRTCManager {
             this.unsubscribeFromSignals = null;
         }
 
-        // Close all peer connections
-        for (const [userId, peerConnection] of this.peerConnections.entries()) {
-            peerConnection.close();
-            if (this.onUserStreamCallback) {
-                this.onUserStreamCallback(userId, null, "remove");
-            }
+        // Remove every user's playback element and close their peer connection.
+        for (const userId of this.peerConnections.keys()) {
+            this.removeUserConnection(userId);
         }
 
-        // Clear the maps
-        this.peerConnections.clear();
+        // Also clear streams that arrived before their peer connection was stored.
         this.userStreams.clear();
     }
 }

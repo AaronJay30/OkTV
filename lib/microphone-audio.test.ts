@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
     addMicrophoneTracks,
+    attachRemoteAudioStream,
+    detachRemoteAudioElement,
     getMicrophoneAudioConstraints,
     stopAudioTracks,
 } from "./microphone-audio";
@@ -39,5 +41,50 @@ describe("stopAudioTracks", () => {
 
         expect(tracks[0].stop).toHaveBeenCalledOnce();
         expect(tracks[1].stop).toHaveBeenCalledOnce();
+    });
+});
+
+describe("attachRemoteAudioStream", () => {
+    it("plays the received stream directly on the audio element", () => {
+        const stream = {} as MediaStream;
+        const audioElement = {
+            autoplay: false,
+            srcObject: null,
+            setAttribute: vi.fn(),
+        } as unknown as HTMLAudioElement;
+
+        attachRemoteAudioStream(audioElement, stream);
+
+        expect(audioElement.srcObject).toBe(stream);
+        expect(audioElement.autoplay).toBe(true);
+        expect(audioElement.setAttribute).toHaveBeenCalledWith(
+            "playsinline",
+            "true"
+        );
+        expect(audioElement.setAttribute).toHaveBeenCalledWith(
+            "webkit-playsinline",
+            "true"
+        );
+    });
+});
+
+describe("detachRemoteAudioElement", () => {
+    it("detaches playback without stopping remote receiver tracks", () => {
+        const stop = vi.fn();
+        const stream = {
+            getTracks: () => [{ stop }],
+        } as unknown as MediaStream;
+        const audioElement = {
+            srcObject: stream,
+            pause: vi.fn(),
+            remove: vi.fn(),
+        } as unknown as HTMLAudioElement;
+
+        detachRemoteAudioElement(audioElement);
+
+        expect(audioElement.pause).toHaveBeenCalledOnce();
+        expect(audioElement.srcObject).toBeNull();
+        expect(audioElement.remove).toHaveBeenCalledOnce();
+        expect(stop).not.toHaveBeenCalled();
     });
 });

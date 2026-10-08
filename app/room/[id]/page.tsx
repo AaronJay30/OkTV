@@ -577,38 +577,11 @@ export default function Room() {
                                     delete updated[userId];
                                 }
                                 return updated;
-                            }); // Here you would also handle playing the audio from the stream
+                            });
                             if (stream && event === "add") {
                                 console.log(
                                     `User ${userId} microphone connected`
                                 );
-
-                                // Remove any existing audio element for this user
-                                const existingAudio = document.getElementById(
-                                    `audio-${userId}`
-                                ) as HTMLAudioElement;
-
-                                if (existingAudio) {
-                                    if (existingAudio.srcObject) {
-                                        const oldStream =
-                                            existingAudio.srcObject as MediaStream;
-                                        oldStream
-                                            .getTracks()
-                                            .forEach((track) => track.stop());
-                                    }
-                                    existingAudio.srcObject = null;
-                                    existingAudio.remove();
-                                }
-
-                                // Create a new audio element to play the stream
-                                const audioElement = new Audio();
-                                audioElement.srcObject = stream;
-                                audioElement.id = `audio-${userId}`;
-                                audioElement.autoplay = true;
-
-                                // Add the audio element to the DOM (hidden)
-                                audioElement.style.display = "none";
-                                document.body.appendChild(audioElement);
 
                                 toast({
                                     title: "User microphone connected",
@@ -618,22 +591,6 @@ export default function Room() {
                                 console.log(
                                     `User ${userId} microphone disconnected`
                                 );
-
-                                // Remove the audio element for this user
-                                const audioElement = document.getElementById(
-                                    `audio-${userId}`
-                                ) as HTMLAudioElement;
-                                if (audioElement) {
-                                    if (audioElement.srcObject) {
-                                        const stream =
-                                            audioElement.srcObject as MediaStream;
-                                        stream
-                                            .getTracks()
-                                            .forEach((track) => track.stop());
-                                    }
-                                    audioElement.srcObject = null;
-                                    audioElement.remove();
-                                }
                             }
                         }
                     );
@@ -661,11 +618,6 @@ export default function Room() {
                 // Close all connections
                 adminRTCManagerRef.current.close();
                 adminRTCManagerRef.current = null;
-
-                // Remove all audio elements
-                document
-                    .querySelectorAll('[id^="audio-"]')
-                    .forEach((el) => el.remove());
             }
         };
     }, [isAdmin, isInitialized, roomId, roomData?.micFeatureEnabled]);

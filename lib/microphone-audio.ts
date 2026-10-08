@@ -20,3 +20,21 @@ export function stopAudioTracks(
 ): void {
     stream.getTracks().forEach((track) => track.stop());
 }
+
+export function attachRemoteAudioStream(
+    audioElement: HTMLAudioElement,
+    stream: MediaStream
+): void {
+    audioElement.autoplay = true;
+    audioElement.setAttribute("playsinline", "true");
+    audioElement.setAttribute("webkit-playsinline", "true");
+    audioElement.srcObject = stream;
+}
+
+export function detachRemoteAudioElement(
+    audioElement: HTMLAudioElement
+): void {
+    audioElement.pause();
+    audioElement.srcObject = null;
+    audioElement.remove();
+}
