@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
     addMicrophoneTracks,
     attachRemoteAudioStream,
+    createMicrophoneEchoEffect,
     detachRemoteAudioElement,
     getIncomingAudioDiagnostics,
     getMicrophoneCaptureLatency,
     getMicrophoneAudioConstraints,
+    micVolumeLevelToGain,
+    normalizeMicEchoLevel,
+    normalizeMicVolumeLevel,
     stopAudioTracks,
 } from "./microphone-audio";
 
@@ -167,5 +171,86 @@ describe("getIncomingAudioDiagnostics", () => {
                 },
             ])
         ).toEqual({});
+    });
+});
+
+describe("normalizeMicEchoLevel", () => {
+    it("clamps and rounds user-controlled echo levels", () => {
+        expect(normalizeMicEchoLevel(-5)).toBe(0);
+        expect(normalizeMicEchoLevel(42.6)).toBe(43);
+        expect(normalizeMicEchoLevel(120)).toBe(100);
+        expect(normalizeMicEchoLevel(Number.NaN)).toBe(0);
+    });
+});
+
+describe("normalizeMicVolumeLevel", () => {
+    it("clamps, rounds, and rejects non-finite user volume levels", () => {
+        expect(normalizeMicVolumeLevel(-5)).toBe(0);
+        expect(normalizeMicVolumeLevel(42.6)).toBe(43);
+        expect(normalizeMicVolumeLevel(150)).toBe(100);
+        expect(normalizeMicVolumeLevel(Number.POSITIVE_INFINITY)).toBe(0);
+    });
+});
+
+describe("micVolumeLevelToGain", () => {
+    it("converts saved percent levels into playback gain ratios", () => {
+        expect(micVolumeLevelToGain(0)).toBe(0);
+        expect(micVolumeLevelToGain(80)).toBe(0.8);
+        expect(micVolumeLevelToGain(100)).toBe(1);
+    });
+});
+
+describe("createMicrophoneEchoEffect", () => {
+    it("routes only delayed repeats to output and releases its audio nodes", () => {
+        const source = { connect: vi.fn(), disconnect: vi.fn() };
+        const delay = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            delayTime: { value: 0 },
+        };
+        const feedback = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            gain: { setTargetAtTime: vi.fn() },
+        };
+        const wet = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            gain: { setTargetAtTime: vi.fn() },
+        };
+        const destination = {};
+        const audioContext = {
+            currentTime: 4,
+            destination,
+            createMediaStreamSource: vi.fn(() => source),
+            createDelay: vi.fn(() => delay),
+            createGain: vi.fn().mockReturnValueOnce(feedback).mockReturnValueOnce(wet),
+        } as unknown as AudioContext;
+        const stream = {} as MediaStream;
+
+        const effect = createMicrophoneEchoEffect(audioContext, stream);
+        effect.setLevel(50, 0.4);
+
+        expect(audioContext.createMediaStreamSource).toHaveBeenCalledWith(stream);
+        expect(source.connect).toHaveBeenCalledWith(delay);
+        expect(delay.connect).toHaveBeenNthCalledWith(1, wet);
+        expect(delay.connect).toHaveBeenNthCalledWith(2, feedback);
+        expect(wet.connect).toHaveBeenCalledWith(destination);
+        expect(feedback.connect).toHaveBeenCalledWith(delay);
+        expect(delay.delayTime.value).toBe(0.22);
+        expect(wet.gain.setTargetAtTime.mock.calls[0][0]).toBeCloseTo(0.11);
+        expect(wet.gain.setTargetAtTime).toHaveBeenCalledWith(
+            expect.any(Number),
+            4,
+            0.03
+        );
+        expect(feedback.gain.setTargetAtTime).toHaveBeenCalledWith(0.19, 4, 0.03);
+
+        effect.disconnect();
+
+        expect(source.disconnect).toHaveBeenCalledOnce();
+        expect(delay.disconnect).toHaveBeenCalledOnce();
+        expect(feedback.disconnect).toHaveBeenCalledOnce();
+        expect(wet.disconnect).toHaveBeenCalledOnce();
     });
 });

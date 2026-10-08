@@ -94,7 +94,14 @@ import {
     MicrophoneRTCManager,
     AdminRTCManager,
     updateUserMicStatus,
+    updateUserMicEchoLevel,
+    updateUserMicVolumeLevel,
 } from "@/lib/webrtc-service";
+import {
+    DEFAULT_MIC_VOLUME_LEVEL,
+    micVolumeLevelToGain,
+    normalizeMicVolumeLevel,
+} from "@/lib/microphone-audio";
 
 // Define YouTube component props type
 interface YouTubeProps {
@@ -287,6 +294,10 @@ export default function Room() {
 
     // Microphone feature states
     const [isMutedByAdmin, setIsMutedByAdmin] = useState(false);
+    const [micEchoLevel, setMicEchoLevel] = useState(0);
+    const [micVolumeLevel, setMicVolumeLevel] = useState(
+        DEFAULT_MIC_VOLUME_LEVEL
+    );
     // Use the useMicrophone hook to handle microphone access
     const {
         isMicOn,
@@ -300,10 +311,6 @@ export default function Room() {
     // Volume control states
     const [videoVolume, setVideoVolume] = useState(100); // 0-100 for video volume
     const [showVolumeSlider, setShowVolumeSlider] = useState(false); // Show/hide video volume slider
-    const [userMicVolumes, setUserMicVolumes] = useState<{
-        [userId: string]: number;
-    }>({});
-
     // WebRTC managers refs
     const micRTCManagerRef = useRef<MicrophoneRTCManager | null>(null);
     const adminRTCManagerRef = useRef<AdminRTCManager | null>(null);
@@ -325,6 +332,19 @@ export default function Room() {
         combinedError,
         queueActions,
     ] = useQueueAndCurrentSong(roomId, isAdmin);
+
+    useEffect(() => {
+        if (isAdmin || !firebaseUserId) return;
+        const currentUser = users.find((user) => user.id === firebaseUserId);
+        if (currentUser) {
+            setMicEchoLevel(currentUser.micEchoLevel ?? 0);
+            setMicVolumeLevel(
+                normalizeMicVolumeLevel(
+                    currentUser.micVolumeLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                )
+            );
+        }
+    }, [firebaseUserId, isAdmin, users]);
 
     // Refs (unconditional)
     const playerRef = useRef<any>(null);
@@ -621,6 +641,24 @@ export default function Room() {
             }
         };
     }, [isAdmin, isInitialized, roomId, roomData?.micFeatureEnabled]);
+
+    // Echo is chosen by each phone user; the host only applies that level locally.
+    useEffect(() => {
+        const manager = adminRTCManagerRef.current;
+        if (!isAdmin || !manager || !roomData?.micFeatureEnabled) return;
+
+        users.forEach((user) => {
+            if (!user.isAdmin) {
+                manager.setUserVolume(
+                    user.id,
+                    micVolumeLevelToGain(
+                        user.micVolumeLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                    )
+                );
+                manager.setUserMicEchoLevel(user.id, user.micEchoLevel ?? 0);
+            }
+        });
+    }, [isAdmin, roomData?.micFeatureEnabled, users]);
 
     // Set origin URL on client side, only when room is validated
     useEffect(() => {
@@ -1140,17 +1178,49 @@ export default function Room() {
         }
     };
 
-    // Handle microphone volume change for a specific user
-    const handleUserMicVolumeChange = (userId: string, value: number[]) => {
-        const newVolume = value[0];
-        setUserMicVolumes((prev) => ({
-            ...prev,
-            [userId]: newVolume,
-        }));
+    const saveMicEchoLevel = async (value: number[]) => {
+        const level = value[0] ?? 0;
+        setMicEchoLevel(level);
+        if (!firebaseUserId || !roomId) return;
 
-        // If admin has RTC manager and a connection to this user, adjust their volume
-        if (adminRTCManagerRef.current && connectedUsers[userId]) {
-            adminRTCManagerRef.current.setUserVolume(userId, newVolume / 100);
+        try {
+            await updateUserMicEchoLevel(roomId, firebaseUserId, level);
+        } catch (error) {
+            console.error("Could not save microphone echo level:", error);
+            const savedLevel =
+                users.find((user) => user.id === firebaseUserId)?.micEchoLevel ??
+                0;
+            setMicEchoLevel(savedLevel);
+            toast({
+                title: "Echo setting not saved",
+                description: "Please try adjusting it again.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const saveMicVolumeLevel = async (value: number[]) => {
+        const level = normalizeMicVolumeLevel(value[0] ?? DEFAULT_MIC_VOLUME_LEVEL);
+        setMicVolumeLevel(level);
+        if (!firebaseUserId || !roomId) return;
+
+        try {
+            await updateUserMicVolumeLevel(roomId, firebaseUserId, level);
+        } catch (error) {
+            console.error("Could not save microphone volume level:", error);
+            const savedLevel = users.find(
+                (user) => user.id === firebaseUserId
+            )?.micVolumeLevel;
+            setMicVolumeLevel(
+                normalizeMicVolumeLevel(
+                    savedLevel ?? DEFAULT_MIC_VOLUME_LEVEL
+                )
+            );
+            toast({
+                title: "Volume setting not saved",
+                description: "Please try adjusting it again.",
+                variant: "destructive",
+            });
         }
     };
 
@@ -1690,6 +1760,17 @@ export default function Room() {
                             )}
                             {/* Fullscreen, Sidebar, and Controls Toggle Buttons */}
                             <div className="absolute top-4 right-4 flex gap-2 z-10">
+                                <div
+                                    role="status"
+                                    aria-label={`${users.length} users in room`}
+                                    className="h-10 flex items-center gap-1.5 rounded-full bg-black/30 px-3 text-white"
+                                >
+                                    <Users
+                                        className="h-4 w-4"
+                                        aria-hidden="true"
+                                    />
+                                    <span aria-hidden="true">{users.length}</span>
+                                </div>
                                 {isAdmin && (
                                     <Button
                                         variant="ghost"
@@ -2358,40 +2439,6 @@ export default function Room() {
                                                                         </span>
                                                                     )}{" "}
                                                             </span>
-                                                            {isAdmin &&
-                                                                user.isMicOn &&
-                                                                !user.isMutedByAdmin && (
-                                                                    <div className="flex items-center ml-2">
-                                                                        <Volume2 className="h-3 w-3 text-gray-400 mr-2" />
-                                                                        <Slider
-                                                                            value={[
-                                                                                userMicVolumes[
-                                                                                    user
-                                                                                        .id
-                                                                                ] ||
-                                                                                    80,
-                                                                            ]}
-                                                                            min={
-                                                                                0
-                                                                            }
-                                                                            max={
-                                                                                100
-                                                                            }
-                                                                            step={
-                                                                                1
-                                                                            }
-                                                                            onValueChange={(
-                                                                                value
-                                                                            ) =>
-                                                                                handleUserMicVolumeChange(
-                                                                                    user.id,
-                                                                                    value
-                                                                                )
-                                                                            }
-                                                                            className="w-24"
-                                                                        />
-                                                                    </div>
-                                                                )}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -2467,6 +2514,68 @@ export default function Room() {
                                                             : "Tap to turn on"}
                                                     </span>
                                                 </Button>{" "}
+                                                <div className="w-full max-w-xs space-y-3 text-left">
+                                                    <div className="flex items-center justify-between text-sm text-white">
+                                                        <span>Mic volume</span>
+                                                        <span>{micVolumeLevel}%</span>
+                                                    </div>
+                                                    <Slider
+                                                        aria-label="Microphone volume"
+                                                        value={[micVolumeLevel]}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
+                                                            setMicVolumeLevel(
+                                                                normalizeMicVolumeLevel(
+                                                                    value[0] ??
+                                                                        DEFAULT_MIC_VOLUME_LEVEL
+                                                                )
+                                                            )
+                                                        }
+                                                        onValueCommit={
+                                                            saveMicVolumeLevel
+                                                        }
+                                                        className="w-full"
+                                                    />
+                                                    <p className="text-xs text-gray-400">
+                                                        Controls how loud your
+                                                        mic sounds to the host.
+                                                    </p>
+                                                </div>
+                                                <div className="w-full max-w-xs space-y-3 text-left">
+                                                    <div className="flex items-center justify-between text-sm text-white">
+                                                        <span>
+                                                            Echo
+                                                        </span>
+                                                        <span>{micEchoLevel}%</span>
+                                                    </div>
+                                                    <Slider
+                                                        aria-label="Echo level"
+                                                        value={[micEchoLevel]}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
+                                                            setMicEchoLevel(
+                                                                value[0] ?? 0
+                                                            )
+                                                        }
+                                                        onValueCommit={
+                                                            saveMicEchoLevel
+                                                        }
+                                                        className="w-full"
+                                                    />
+                                                    <p className="text-xs text-gray-400">
+                                                        The host hears this
+                                                        effect. Your mic stays
+                                                        direct.
+                                                    </p>
+                                                </div>
                                                 {isMutedByAdmin && (
                                                     <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-white max-w-xs mx-auto mt-4">
                                                         <p>

@@ -15,6 +15,8 @@ export interface User {
     joinedAt?: string;
     isMicOn?: boolean;
     isMutedByAdmin?: boolean;
+    micEchoLevel?: number;
+    micVolumeLevel?: number;
 }
 
 export interface Score {

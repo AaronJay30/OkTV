@@ -39,6 +39,69 @@ export function detachRemoteAudioElement(
     audioElement.remove();
 }
 
+export function normalizeMicEchoLevel(level: number): number {
+    return Number.isFinite(level)
+        ? Math.round(Math.max(0, Math.min(100, level)))
+        : 0;
+}
+
+export const DEFAULT_MIC_VOLUME_LEVEL = 80;
+
+export function normalizeMicVolumeLevel(level: number): number {
+    return Number.isFinite(level)
+        ? Math.round(Math.max(0, Math.min(100, level)))
+        : 0;
+}
+
+export function micVolumeLevelToGain(level: number): number {
+    return normalizeMicVolumeLevel(level) / 100;
+}
+
+export function createMicrophoneEchoEffect(
+    audioContext: AudioContext,
+    stream: MediaStream
+): {
+    setLevel: (level: number, outputVolume?: number) => void;
+    disconnect: () => void;
+} {
+    const source = audioContext.createMediaStreamSource(stream);
+    const delay = audioContext.createDelay(1);
+    const feedback = audioContext.createGain();
+    const wet = audioContext.createGain();
+
+    delay.delayTime.value = 0.22;
+    source.connect(delay);
+    delay.connect(wet);
+    wet.connect(audioContext.destination);
+    delay.connect(feedback);
+    feedback.connect(delay);
+
+    return {
+        setLevel(level, outputVolume = 1) {
+            const amount = normalizeMicEchoLevel(level) / 100;
+            const safeVolume = Number.isFinite(outputVolume)
+                ? Math.max(0, Math.min(1, outputVolume))
+                : 0;
+            wet.gain.setTargetAtTime(
+                amount * 0.55 * safeVolume,
+                audioContext.currentTime,
+                0.03
+            );
+            feedback.gain.setTargetAtTime(
+                amount * 0.38,
+                audioContext.currentTime,
+                0.03
+            );
+        },
+        disconnect() {
+            source.disconnect();
+            delay.disconnect();
+            feedback.disconnect();
+            wet.disconnect();
+        },
+    };
+}
+
 export function getMicrophoneCaptureLatency(
     stream: Pick<MediaStream, "getAudioTracks">
 ): number | undefined {

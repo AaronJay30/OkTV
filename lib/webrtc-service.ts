@@ -7,6 +7,7 @@ import {
     remove,
     push,
     get,
+    update,
     query,
     orderByChild,
     equalTo,
@@ -16,8 +17,13 @@ import { rtdb } from "./firebase";
 import {
     addMicrophoneTracks,
     attachRemoteAudioStream,
+    createMicrophoneEchoEffect,
+    DEFAULT_MIC_VOLUME_LEVEL,
     detachRemoteAudioElement,
     getIncomingAudioDiagnostics,
+    normalizeMicEchoLevel,
+    normalizeMicVolumeLevel,
+    micVolumeLevelToGain,
     stopAudioTracks,
 } from "./microphone-audio";
 
@@ -225,6 +231,28 @@ export async function updateUserMicStatus(
     }
 }
 
+export async function updateUserMicEchoLevel(
+    roomId: string,
+    userId: string,
+    level: number
+): Promise<void> {
+    const userRef = ref(rtdb, `rooms/${roomId}/users/${userId}`);
+    const snapshot = await get(userRef);
+    if (!snapshot.exists()) throw new Error("Microphone user no longer exists");
+    await update(userRef, { micEchoLevel: normalizeMicEchoLevel(level) });
+}
+
+export async function updateUserMicVolumeLevel(
+    roomId: string,
+    userId: string,
+    level: number
+): Promise<void> {
+    const userRef = ref(rtdb, `rooms/${roomId}/users/${userId}`);
+    const snapshot = await get(userRef);
+    if (!snapshot.exists()) throw new Error("Microphone user no longer exists");
+    await update(userRef, { micVolumeLevel: normalizeMicVolumeLevel(level) });
+}
+
 /**
  * Updates a user's muted status in Firebase (admin only)
  * @param roomId The ID of the room
@@ -425,6 +453,13 @@ export class MicrophoneRTCManager {
 export class AdminRTCManager {
     private peerConnections: Map<string, RTCPeerConnection> = new Map();
     private diagnosticTimers: Map<string, number> = new Map();
+    private userEchoLevels: Map<string, number> = new Map();
+    private userMicVolumes: Map<string, number> = new Map();
+    private echoEffects = new Map<
+        string,
+        ReturnType<typeof createMicrophoneEchoEffect>
+    >();
+    private echoAudioContext: AudioContext | null = null;
     private roomId: string;
     private adminId: string = "admin";
     private userStreams: Map<string, MediaStream> = new Map();
@@ -513,6 +548,15 @@ export class AdminRTCManager {
                     document.body.appendChild(audioElement);
                 }
                 attachRemoteAudioStream(audioElement, stream);
+                this.setUserVolume(
+                    userId,
+                    this.userMicVolumes.get(userId) ??
+                        micVolumeLevelToGain(DEFAULT_MIC_VOLUME_LEVEL)
+                );
+                this.setUserMicEchoLevel(
+                    userId,
+                    this.userEchoLevels.get(userId) ?? 0
+                );
 
                 if (process.env.NODE_ENV === "development") {
                     const previousTimer = this.diagnosticTimers.get(userId);
@@ -660,6 +704,8 @@ export class AdminRTCManager {
         const hadStream = this.userStreams.has(userId);
         this.peerConnections.delete(userId);
         this.userStreams.delete(userId);
+        this.echoEffects.get(userId)?.disconnect();
+        this.echoEffects.delete(userId);
         const audioElement = document.getElementById(
             `audio-${userId}`
         ) as HTMLAudioElement | null;
@@ -683,15 +729,56 @@ export class AdminRTCManager {
      * @param volume The volume level (0-1)
      */
     public setUserVolume(userId: string, volume: number): void {
-        // Find the audio element for this user and adjust its volume
+        const safeVolume = micVolumeLevelToGain(volume * 100);
+        this.userMicVolumes.set(userId, safeVolume);
         const audioElement = document.getElementById(
             `audio-${userId}`
         ) as HTMLAudioElement;
 
         if (audioElement) {
-            // Ensure volume is between 0 and 1
-            const safeVolume = Math.max(0, Math.min(1, volume));
             audioElement.volume = safeVolume;
+            this.echoEffects
+                .get(userId)
+                ?.setLevel(this.userEchoLevels.get(userId) ?? 0, safeVolume);
+        }
+    }
+
+    public setUserMicEchoLevel(userId: string, level: number): void {
+        const safeLevel = normalizeMicEchoLevel(level);
+        this.userEchoLevels.set(userId, safeLevel);
+
+        const currentEffect = this.echoEffects.get(userId);
+        if (safeLevel === 0) {
+            currentEffect?.disconnect();
+            this.echoEffects.delete(userId);
+            return;
+        }
+
+        const stream = this.userStreams.get(userId);
+        if (!stream) return;
+
+        try {
+            if (!this.echoAudioContext || this.echoAudioContext.state === "closed") {
+                this.echoAudioContext = new AudioContext({
+                    latencyHint: "interactive",
+                });
+            }
+            if (this.echoAudioContext.state === "suspended") {
+                void this.echoAudioContext.resume().catch((error: unknown) => {
+                    console.warn("Could not resume microphone echo audio:", error);
+                });
+            }
+
+            const effect =
+                currentEffect ??
+                createMicrophoneEchoEffect(this.echoAudioContext, stream);
+            this.echoEffects.set(userId, effect);
+            effect.setLevel(
+                safeLevel,
+                this.userMicVolumes.get(userId) ?? 1
+            );
+        } catch (error) {
+            console.error("Could not apply microphone echo:", error);
         }
     }
 
@@ -712,5 +799,17 @@ export class AdminRTCManager {
 
         // Also clear streams that arrived before their peer connection was stored.
         this.userStreams.clear();
+        for (const effect of this.echoEffects.values()) {
+            effect.disconnect();
+        }
+        this.echoEffects.clear();
+        this.userEchoLevels.clear();
+        this.userMicVolumes.clear();
+        if (this.echoAudioContext && this.echoAudioContext.state !== "closed") {
+            void this.echoAudioContext.close().catch((error: unknown) => {
+                console.warn("Could not close microphone echo audio:", error);
+            });
+        }
+        this.echoAudioContext = null;
     }
 }
