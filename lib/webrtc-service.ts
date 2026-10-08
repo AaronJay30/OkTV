@@ -14,9 +14,9 @@ import {
 } from "firebase/database";
 import { rtdb } from "./firebase";
 import {
-    createLowLatencyAudioStream,
-    optimizePeerConnectionForAudio,
-} from "./audio-optimizer";
+    addMicrophoneTracks,
+    stopAudioTracks,
+} from "./microphone-audio";
 
 /**
  * Signal types for WebRTC communication
@@ -43,89 +43,14 @@ interface Signal {
  * Creates an RTCPeerConnection with the appropriate configuration
  */
 export function createPeerConnection(): RTCPeerConnection {
-    const configuration: RTCConfiguration = {
+    return new RTCPeerConnection({
         iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
             { urls: "stun:stun2.l.google.com:19302" },
         ],
         iceCandidatePoolSize: 10,
-    };
-
-    const pc = new RTCPeerConnection(configuration);
-
-    // Optimize for audio performance with minimal latency
-    try {
-        // Set codec preferences to favor Opus with low delay settings
-        if (
-            RTCRtpSender.getCapabilities &&
-            RTCRtpSender.getCapabilities("audio")
-        ) {
-            const transceivers = pc.getTransceivers();
-            const capabilities = RTCRtpSender.getCapabilities("audio");
-
-            if (capabilities && capabilities.codecs) {
-                // Prioritize Opus codec which is better for low latency audio
-                const preferredCodecs = capabilities.codecs
-                    .filter(
-                        (codec) => codec.mimeType.toLowerCase() === "audio/opus"
-                    )
-                    .concat(
-                        capabilities.codecs.filter(
-                            (codec) =>
-                                codec.mimeType.toLowerCase() !== "audio/opus"
-                        )
-                    );
-
-                transceivers.forEach((transceiver) => {
-                    if (
-                        transceiver.sender.track &&
-                        transceiver.sender.track.kind === "audio"
-                    ) {
-                        try {
-                            transceiver.setCodecPreferences(preferredCodecs);
-                        } catch (e) {
-                            console.warn("Failed to set codec preferences:", e);
-                        }
-                    }
-                });
-            }
-        }
-
-        // Set parameters to prioritize audio packets (Chrome-specific)
-        pc.addEventListener("track", (event) => {
-            if (event.track.kind === "audio") {
-                const audioSender = pc
-                    .getSenders()
-                    .find(
-                        (sender) =>
-                            sender.track && sender.track.kind === "audio"
-                    );
-                if (audioSender && audioSender.setParameters) {
-                    const params = audioSender.getParameters();
-                    if (params.encodings && params.encodings.length > 0) {
-                        // Set high priority for all audio tracks
-                        params.encodings.forEach((encoding) => {
-                            encoding.priority = "high";
-                            encoding.networkPriority = "high";
-                        });
-                        audioSender
-                            .setParameters(params)
-                            .catch((e) =>
-                                console.warn(
-                                    "Failed to set sender parameters for priority:",
-                                    e
-                                )
-                            );
-                    }
-                }
-            }
-        });
-    } catch (err) {
-        console.warn("Could not set codec preferences for low latency:", err);
-    }
-
-    return pc;
+    });
 }
 
 /**
@@ -360,26 +285,10 @@ export class MicrophoneRTCManager {
             }
         }
 
-        // Process the audio stream for low latency
-        const optimizedStream = createLowLatencyAudioStream(stream, {
-            bufferSize: 256, // Low buffer size for minimal latency
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-        });
-
-        this.localStream = optimizedStream;
+        this.localStream = stream;
         this.peerConnection = createPeerConnection();
 
-        // Apply WebRTC optimizations for low latency audio
-        optimizePeerConnectionForAudio(this.peerConnection);
-
-        // Add all tracks from the optimized stream to the peer connection
-        optimizedStream.getTracks().forEach((track) => {
-            if (this.peerConnection && this.localStream) {
-                this.peerConnection.addTrack(track, this.localStream);
-            }
-        });
+        addMicrophoneTracks(this.peerConnection, stream);
 
         // Listen for ICE candidates and send them to the admin
         this.peerConnection.onicecandidate = async (event) => {
@@ -497,17 +406,8 @@ export class MicrophoneRTCManager {
             this.peerConnection = null;
         }
 
-        // Clean up audio processing resources
         if (this.localStream) {
-            // Stop all tracks
-            this.localStream.getTracks().forEach((track) => track.stop());
-
-            // Clean up any audio context associated with the stream
-            if ((this.localStream as any)._audioContext) {
-                (this.localStream as any)._audioContext.close();
-                (this.localStream as any)._audioContext = null;
-            }
-
+            stopAudioTracks(this.localStream);
             this.localStream = null;
         }
 
@@ -593,9 +493,6 @@ export class AdminRTCManager {
         // Create a new peer connection for this user if one doesn't exist
         if (!this.peerConnections.has(userId)) {
             const peerConnection = createPeerConnection();
-
-            // Apply audio optimizations for low latency
-            optimizePeerConnectionForAudio(peerConnection);
 
             this.peerConnections.set(userId, peerConnection); // Set up event handlers for this connection
             peerConnection.ontrack = (event) => {

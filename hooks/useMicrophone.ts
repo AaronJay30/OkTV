@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getMicrophoneAudioConstraints } from "@/lib/microphone-audio";
 
 // Define the return type for our hook
 type UseMicrophoneReturn = {
@@ -100,15 +101,9 @@ export function useMicrophone(): UseMicrophoneReturn {
                 throw new Error(
                     "Your browser doesn't support microphone access"
                 );
-            } // Updated audio constraints with balanced quality and latency
+            }
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true, // Enable echo cancellation to reduce feedback
-                    noiseSuppression: true, // Enable noise suppression to reduce background noise
-                    autoGainControl: true, // Enable auto gain to maintain consistent volume
-                    sampleRate: 44100, // Standard sample rate with good quality/performance balance
-                    channelCount: 1, // Mono is sufficient for voice and has less overhead
-                },
+                audio: getMicrophoneAudioConstraints(),
             });
             setMediaStream(stream);
             setIsMicOn(true);
