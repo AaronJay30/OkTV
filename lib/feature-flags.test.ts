@@ -7,6 +7,28 @@ describe("feature flags", () => {
             phoneMicEnabled: true,
             scorerEnabled: true,
             reactionsEnabled: true,
+            phoneMicExperimental: false,
+            scorerExperimental: false,
+            reactionsExperimental: false,
+        });
+    });
+
+    it("preserves valid experimental values and defaults invalid ones to false", () => {
+        expect(
+            normalizeFlags({
+                phoneMicEnabled: false,
+                scorerEnabled: true,
+                reactionsEnabled: false,
+                phoneMicExperimental: true,
+                scorerExperimental: "true",
+            })
+        ).toEqual({
+            phoneMicEnabled: false,
+            scorerEnabled: true,
+            reactionsEnabled: false,
+            phoneMicExperimental: true,
+            scorerExperimental: false,
+            reactionsExperimental: false,
         });
     });
 
@@ -16,6 +38,9 @@ describe("feature flags", () => {
                 phoneMicEnabled: false,
                 scorerEnabled: false,
                 reactionsEnabled: false,
+                phoneMicExperimental: false,
+                scorerExperimental: false,
+                reactionsExperimental: false,
             })
         ).toBe(true);
         expect(
@@ -23,6 +48,9 @@ describe("feature flags", () => {
                 phoneMicEnabled: false,
                 scorerEnabled: false,
                 reactionsEnabled: true,
+                phoneMicExperimental: false,
+                scorerExperimental: false,
+                reactionsExperimental: false,
             })
         ).toBe(false);
     });

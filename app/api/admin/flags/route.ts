@@ -1,21 +1,20 @@
 // app/api/admin/flags/route.ts
 //
 // GET  /api/admin/flags — read current flags (auth-required).
-// PUT  /api/admin/flags — replace flags with the body (auth-required).
+// PUT  /api/admin/flags — update known flags (auth-required).
 //
 // Body shape:
 //   {
 //     phoneMicEnabled: boolean,
 //     scorerEnabled: boolean,
-//     reactionsEnabled: boolean
+//     reactionsEnabled: boolean,
+//     phoneMicExperimental?: boolean,
+//     scorerExperimental?: boolean,
+//     reactionsExperimental?: boolean
 //   }
-//
-// Any field not present is rejected — flag writes are an explicit
-// "set all three" operation so we don't end up with half-updated
-// state from a partial payload.
 
 import { NextResponse } from "next/server";
-import { ref, get, set } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { rtdb } from "@/lib/firebase";
 import { writeAdminAudit } from "@/lib/admin-audit";
@@ -26,14 +25,31 @@ const ALLOWED_KEYS = [
     "phoneMicEnabled",
     "scorerEnabled",
     "reactionsEnabled",
+    "phoneMicExperimental",
+    "scorerExperimental",
+    "reactionsExperimental",
 ] as const;
-type FlagKey = (typeof ALLOWED_KEYS)[number];
-type FlagsPayload = Record<FlagKey, boolean>;
+const REQUIRED_KEYS = ALLOWED_KEYS.slice(0, 3);
+
+interface FlagsPayload extends Record<string, boolean | undefined> {
+    phoneMicEnabled: boolean;
+    scorerEnabled: boolean;
+    reactionsEnabled: boolean;
+    phoneMicExperimental?: boolean;
+    scorerExperimental?: boolean;
+    reactionsExperimental?: boolean;
+}
 
 function isFlagsPayload(v: unknown): v is FlagsPayload {
-    if (!v || typeof v !== "object") return false;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return false;
     const r = v as Record<string, unknown>;
-    return ALLOWED_KEYS.every((k) => typeof r[k] === "boolean");
+    return (
+        Object.keys(r).every((key) => (ALLOWED_KEYS as readonly string[]).includes(key)) &&
+        REQUIRED_KEYS.every((key) => typeof r[key] === "boolean") &&
+        ALLOWED_KEYS.slice(3).every(
+            (key) => r[key] === undefined || typeof r[key] === "boolean"
+        )
+    );
 }
 
 function cookieBagFromRequest(request: Request) {
@@ -68,6 +84,18 @@ export async function GET(request: Request) {
                   phoneMicEnabled: !!(raw as Record<string, unknown>).phoneMicEnabled,
                   scorerEnabled: !!(raw as Record<string, unknown>).scorerEnabled,
                   reactionsEnabled: !!(raw as Record<string, unknown>).reactionsEnabled,
+                  phoneMicExperimental:
+                      typeof (raw as Record<string, unknown>).phoneMicExperimental === "boolean"
+                          ? (raw as Record<string, unknown>).phoneMicExperimental
+                          : false,
+                  scorerExperimental:
+                      typeof (raw as Record<string, unknown>).scorerExperimental === "boolean"
+                          ? (raw as Record<string, unknown>).scorerExperimental
+                          : false,
+                  reactionsExperimental:
+                      typeof (raw as Record<string, unknown>).reactionsExperimental === "boolean"
+                          ? (raw as Record<string, unknown>).reactionsExperimental
+                          : false,
               }
             : {};
         return NextResponse.json(stripped, { status: 200 });
@@ -95,14 +123,14 @@ export async function PUT(request: Request) {
     if (!isFlagsPayload(body)) {
         return NextResponse.json(
             {
-                error: `Body must contain boolean values for: ${ALLOWED_KEYS.join(", ")}`,
+                error: `Body must contain boolean values for: ${REQUIRED_KEYS.join(", ")}; optional boolean values for: ${ALLOWED_KEYS.slice(3).join(", ")}`,
             },
             { status: 400 }
         );
     }
 
     try {
-        await set(ref(rtdb, "config/flags"), body);
+        await update(ref(rtdb, "config/flags"), body);
         await writeAdminAudit("flag.update", body);
         return NextResponse.json(body, { status: 200 });
     } catch (e) {
