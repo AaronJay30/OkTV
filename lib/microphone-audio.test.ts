@@ -3,6 +3,8 @@ import {
     addMicrophoneTracks,
     attachRemoteAudioStream,
     detachRemoteAudioElement,
+    getIncomingAudioDiagnostics,
+    getMicrophoneCaptureLatency,
     getMicrophoneAudioConstraints,
     stopAudioTracks,
 } from "./microphone-audio";
@@ -86,5 +88,84 @@ describe("detachRemoteAudioElement", () => {
         expect(audioElement.srcObject).toBeNull();
         expect(audioElement.remove).toHaveBeenCalledOnce();
         expect(stop).not.toHaveBeenCalled();
+    });
+});
+
+describe("getMicrophoneCaptureLatency", () => {
+    it("returns the browser-reported latency for the captured audio track", () => {
+        const stream = {
+            getAudioTracks: () => [{ getSettings: () => ({ latency: 0.012 }) }],
+        } as unknown as MediaStream;
+
+        expect(getMicrophoneCaptureLatency(stream)).toBe(0.012);
+    });
+
+    it("returns undefined when the browser does not expose capture latency", () => {
+        const stream = {
+            getAudioTracks: () => [{ getSettings: () => ({}) }],
+        } as unknown as MediaStream;
+
+        expect(getMicrophoneCaptureLatency(stream)).toBeUndefined();
+    });
+});
+
+describe("getIncomingAudioDiagnostics", () => {
+    it("summarizes audio jitter, buffer, playout, loss, and connection RTT", () => {
+        const stats = [
+            {
+                id: "audio-inbound",
+                type: "inbound-rtp",
+                timestamp: 1000,
+                kind: "audio",
+                jitter: 0.003,
+                packetsLost: 2,
+                jitterBufferDelay: 0.042,
+                jitterBufferEmittedCount: 20,
+            },
+            {
+                id: "audio-playout",
+                type: "media-playout",
+                timestamp: 1000,
+                totalPlayoutDelay: 0.1,
+                totalSamplesCount: 20,
+            },
+            {
+                id: "selected-pair",
+                type: "candidate-pair",
+                timestamp: 1000,
+                state: "succeeded",
+                nominated: true,
+                currentRoundTripTime: 0.08,
+            },
+            {
+                id: "video-inbound",
+                type: "inbound-rtp",
+                timestamp: 1000,
+                kind: "video",
+                jitter: 0.2,
+                packetsLost: 99,
+            },
+        ];
+
+        expect(getIncomingAudioDiagnostics(stats)).toEqual({
+            jitterMs: 3,
+            packetsLost: 2,
+            averageJitterBufferMs: 2.1,
+            averagePlayoutDelayMs: 5,
+            roundTripTimeMs: 80,
+        });
+    });
+
+    it("returns an empty summary when audio diagnostics are unavailable", () => {
+        expect(
+            getIncomingAudioDiagnostics([
+                {
+                    id: "video-inbound",
+                    type: "inbound-rtp",
+                    timestamp: 1000,
+                    kind: "video",
+                },
+            ])
+        ).toEqual({});
     });
 });

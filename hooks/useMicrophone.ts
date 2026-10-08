@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getMicrophoneAudioConstraints } from "@/lib/microphone-audio";
+import {
+    getMicrophoneAudioConstraints,
+    getMicrophoneCaptureLatency,
+} from "@/lib/microphone-audio";
 
 // Define the return type for our hook
 type UseMicrophoneReturn = {
@@ -105,6 +108,11 @@ export function useMicrophone(): UseMicrophoneReturn {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: getMicrophoneAudioConstraints(),
             });
+            if (process.env.NODE_ENV === "development") {
+                console.info("Microphone capture latency", {
+                    latencySeconds: getMicrophoneCaptureLatency(stream),
+                });
+            }
             setMediaStream(stream);
             setIsMicOn(true);
             setPermissionStatus("granted");

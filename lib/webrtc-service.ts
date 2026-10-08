@@ -17,6 +17,7 @@ import {
     addMicrophoneTracks,
     attachRemoteAudioStream,
     detachRemoteAudioElement,
+    getIncomingAudioDiagnostics,
     stopAudioTracks,
 } from "./microphone-audio";
 
@@ -423,6 +424,7 @@ export class MicrophoneRTCManager {
  */
 export class AdminRTCManager {
     private peerConnections: Map<string, RTCPeerConnection> = new Map();
+    private diagnosticTimers: Map<string, number> = new Map();
     private roomId: string;
     private adminId: string = "admin";
     private userStreams: Map<string, MediaStream> = new Map();
@@ -511,6 +513,34 @@ export class AdminRTCManager {
                     document.body.appendChild(audioElement);
                 }
                 attachRemoteAudioStream(audioElement, stream);
+
+                if (process.env.NODE_ENV === "development") {
+                    const previousTimer = this.diagnosticTimers.get(userId);
+                    if (previousTimer !== undefined) {
+                        window.clearTimeout(previousTimer);
+                    }
+                    const timer = window.setTimeout(() => {
+                        this.diagnosticTimers.delete(userId);
+                        if (this.peerConnections.get(userId) !== peerConnection) {
+                            return;
+                        }
+                        void peerConnection
+                            .getStats()
+                            .then((stats) => {
+                                console.info("Incoming microphone diagnostics", {
+                                    userId,
+                                    ...getIncomingAudioDiagnostics(stats.values()),
+                                });
+                            })
+                            .catch((error: unknown) => {
+                                console.warn(
+                                    "Could not read incoming microphone diagnostics:",
+                                    error
+                                );
+                            });
+                    }, 5000);
+                    this.diagnosticTimers.set(userId, timer);
+                }
 
                 if (this.onUserStreamCallback) {
                     this.onUserStreamCallback(userId, stream, "add");
@@ -620,6 +650,12 @@ export class AdminRTCManager {
      * @param userId The ID of the user
      */
     private removeUserConnection(userId: string): void {
+        const diagnosticTimer = this.diagnosticTimers.get(userId);
+        if (diagnosticTimer !== undefined) {
+            window.clearTimeout(diagnosticTimer);
+            this.diagnosticTimers.delete(userId);
+        }
+
         const peerConnection = this.peerConnections.get(userId);
         const hadStream = this.userStreams.has(userId);
         this.peerConnections.delete(userId);
