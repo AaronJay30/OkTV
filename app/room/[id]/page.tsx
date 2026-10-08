@@ -68,7 +68,6 @@ import { HighScores } from "@/components/high-scores"; // Import the HighScores 
 import { generatePerformanceScore } from "@/lib/scoring-service"; // Import the scoring service
 import { RovingList } from "@/components/ui/roving-list"; // Spec 3: D-pad list navigation
 import { useTvBack } from "@/hooks/use-tv-shortcuts"; // Spec 3: Back button on remote
-import { COMMON_KARAOKE_QUERIES } from "@/lib/common-queries"; // Spec 3: TV fallback
 import { ReactionPicker } from "@/components/reaction-picker";
 import { ReactionOverlay } from "@/components/reaction-overlay";
 import { ExperimentalBadge } from "@/components/experimental-badge";
@@ -1264,21 +1263,6 @@ export default function Room() {
     const hasFirebaseError =
         [combinedError, usersError, roomError].filter(Boolean).length >= 3;
 
-    // Spec 3: detect "TV-like" coarse pointer devices (no mouse). Used to
-    // surface the common-queries fallback list when there's no on-screen
-    // keyboard handy. MUST be declared above any early `return (...)` in the
-    // component body — Rules of Hooks.
-    const [isCoarsePointer, setIsCoarsePointer] = useState(false);
-    useEffect(() => {
-        if (typeof window === "undefined" || !window.matchMedia) return;
-        const mq = window.matchMedia("(pointer: coarse)");
-        setIsCoarsePointer(mq.matches);
-        const onChange = (e: MediaQueryListEvent) =>
-            setIsCoarsePointer(e.matches);
-        mq.addEventListener("change", onChange);
-        return () => mq.removeEventListener("change", onChange);
-    }, []);
-
     // ---- ORDER OF RENDERING CHECKS ----
 
     // 1. Validation Status Loader
@@ -1441,15 +1425,6 @@ export default function Room() {
                 await updatePlayerState(roomId, false, isMutedCombined); // Use isMutedCombined
             }
         }
-    };
-
-    const handleCommonQueryPick = (query: string) => {
-        setSearchQuery(query);
-        // Defer to next tick so the input value is committed before we
-        // trigger the search.
-        setTimeout(() => {
-            void handleSearch();
-        }, 0);
     };
 
     return (
@@ -1841,25 +1816,25 @@ export default function Room() {
                             className="flex-1 flex flex-col h-full"
                         >
                             {" "}
-                            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 mb-2">
-                                <TabsTrigger className="w-full" value="search">
+                            <TabsList className="flex h-auto w-full flex-nowrap gap-1 mb-2">
+                                <TabsTrigger className="min-w-0 flex-1 px-2" value="search">
                                     Search
                                 </TabsTrigger>
-                                <TabsTrigger className="w-full" value="queue">
+                                <TabsTrigger className="min-w-0 flex-1 px-2" value="queue">
                                     Queue
                                 </TabsTrigger>
                                 {isAdmin && (
-                                    <TabsTrigger className="w-full" value="users">
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="users">
                                         Users
                                     </TabsTrigger>
                                 )}
                                 {roomData?.scorerEnabled && (
-                                    <TabsTrigger className="w-full" value="scores">
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="scores">
                                         Scores
                                     </TabsTrigger>
                                 )}
                                 {!isAdmin && roomData?.micFeatureEnabled && (
-                                    <TabsTrigger className="w-full" value="mic">
+                                    <TabsTrigger className="min-w-0 flex-1 px-2" value="mic">
                                         Mic
                                     </TabsTrigger>
                                 )}
@@ -2139,80 +2114,11 @@ export default function Room() {
                                                 )}
 
                                             {!isSearching && !searchQuery && (
-                                                <div className="space-y-4">
-                                                    <div className="text-center pt-6 text-gray-400">
-                                                        <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                                        <p>
-                                                            Search for your
-                                                            favorite songs to
-                                                            sing
-                                                        </p>
-                                                    </div>
-                                                    {isCoarsePointer && (
-                                                        <div className="px-2">
-                                                            <h4 className="text-sm font-medium text-purple-200 mb-2 px-1">
-                                                                Or pick a popular
-                                                                song:
-                                                            </h4>
-                                                            <RovingList
-                                                                items={
-                                                                    COMMON_KARAOKE_QUERIES
-                                                                }
-                                                                getKey={(q) =>
-                                                                    q.videoId
-                                                                }
-                                                                onActivate={(
-                                                                    q
-                                                                ) =>
-                                                                    handleCommonQueryPick(
-                                                                        q.query
-                                                                    )
-                                                                }
-                                                                className="space-y-2"
-                                                                renderItem={(
-                                                                    q,
-                                                                    _i,
-                                                                    {
-                                                                        itemProps,
-                                                                        isFocused,
-                                                                    }
-                                                                ) => (
-                                                                    <div
-                                                                        {
-                                                                            ...itemProps
-                                                                        }
-                                                                        role="button"
-                                                                        data-testid="common-query"
-                                                                        onClick={() =>
-                                                                            handleCommonQueryPick(
-                                                                                q.query
-                                                                            )
-                                                                        }
-                                                                        className={
-                                                                            "flex items-center gap-3 rounded-lg p-3 border transition-colors " +
-                                                                            (isFocused
-                                                                                ? "border-purple-400 bg-gray-700/90 ring-2 ring-purple-400"
-                                                                                : "border-gray-700 bg-gray-700/70 hover:bg-gray-700/90 focus-within:bg-gray-700/90")
-                                                                        }
-                                                                    >
-                                                                        <Music className="h-5 w-5 text-purple-300 shrink-0" />
-                                                                        <div className="flex flex-col min-w-0">
-                                                                            <p className="text-sm font-medium text-white truncate">
-                                                                                {
-                                                                                    q.title
-                                                                                }
-                                                                            </p>
-                                                                            <p className="text-xs text-gray-300 truncate">
-                                                                                {
-                                                                                    q.artist
-                                                                                }
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            />
-                                                        </div>
-                                                    )}
+                                                <div className="text-center pt-6 text-gray-400">
+                                                    <Music className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                                    <p>
+                                                        Search for your favorite songs to sing
+                                                    </p>
                                                 </div>
                                             )}
                                         </div>

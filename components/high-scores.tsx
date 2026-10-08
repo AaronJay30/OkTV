@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { getRoomHighScores } from "@/lib/firebase-service";
-import { getScoreSongDetails } from "@/lib/score-display";
+import {
+    getScoreSongDetails,
+    truncateScoreTitle,
+} from "@/lib/score-display";
 import { Score } from "@/types/room";
 
 interface HighScoresProps {
@@ -88,7 +91,7 @@ export const HighScores: React.FC<HighScoresProps> = ({ roomId }) => {
                                         aria-label={score.songTitle}
                                         tabIndex={0}
                                     >
-                                        {song.title}
+                                        {truncateScoreTitle(song.title)}
                                     </div>
                                     {song.artist && (
                                         <div className="truncate text-xs text-gray-500">

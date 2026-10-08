@@ -352,6 +352,7 @@ export default function Home() {
                                         htmlFor="reactionsEnabled"
                                         className="text-white flex items-center"
                                     >
+                                        <SmilePlus className="mr-2 h-4 w-4 text-purple-400" />
                                         Live Reactions
                                         <ExperimentalBadge
                                             experimental={flags.reactionsExperimental}

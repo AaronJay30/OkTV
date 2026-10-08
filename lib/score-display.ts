@@ -13,3 +13,9 @@ export function getScoreSongDetails(songTitle: string): {
         artist: songTitle.slice(separatorIndex + 3),
     };
 }
+
+export function truncateScoreTitle(title: string, maxLength = 38): string {
+    return title.length > maxLength
+        ? `${title.slice(0, maxLength)}...`
+        : title;
+}
