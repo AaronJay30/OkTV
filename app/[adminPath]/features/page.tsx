@@ -1,14 +1,12 @@
 // app/[adminPath]/features/page.tsx
 //
-// Spec 04 §8 Features page. Card grid; each card is a feature flag
-// with a click-to-toggle radio indicator.
+// Spec 04 §8 Features page. Each card has separate enabled and
+// experimental switches for one feature.
 //
 // Layout (per spec):
 //   - Search box at top
 //   - Cards in a single-column responsive grid
-//   - Each card: ~20% left icon, ~80% right name+description,
-//     top-right radio indicator (filled/hollow dot)
-//   - Click anywhere on the card toggles the flag
+//   - Each card: icon, name and description, plus independent switches
 
 "use client";
 
@@ -17,10 +15,15 @@ import { Mic2, Star, SmilePlus, Loader2 as LoaderIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
+import { AdminFeatureToggles } from "@/components/admin-feature-toggles";
 import type { Flags } from "@/hooks/use-flags";
 
 interface Feature {
-    key: keyof Flags;
+    key: "phoneMicEnabled" | "scorerEnabled" | "reactionsEnabled";
+    experimentalKey:
+        | "phoneMicExperimental"
+        | "scorerExperimental"
+        | "reactionsExperimental";
     name: string;
     description: string;
     Icon: React.ComponentType<{ className?: string }>;
@@ -29,25 +32,26 @@ interface Feature {
 const FEATURES: Feature[] = [
     {
         key: "phoneMicEnabled",
+        experimentalKey: "phoneMicExperimental",
         name: "Phone as Microphone",
         description: "Allow users to use their phones as microphones.",
         Icon: Mic2,
     },
     {
         key: "scorerEnabled",
+        experimentalKey: "scorerExperimental",
         name: "Karaoke Scorer",
         description: "Show a random score after each performance.",
         Icon: Star,
     },
     {
         key: "reactionsEnabled",
+        experimentalKey: "reactionsExperimental",
         name: "Live Reactions",
         description: "Allow guests to send floating reactions in rooms.",
         Icon: SmilePlus,
     },
-    // Note: the create-room modal is not a manual toggle. It's derived:
-    // shown when any feature above is on, skipped when both are off
-    // (see shouldSkipCreateRoomModal in hooks/use-flags.ts).
+    // The create-room modal is derived from enabled feature flags.
 ];
 
 const CSRF_HEADER = "X-Admin-CSRF";
@@ -81,6 +85,9 @@ export default function FeaturesPage() {
                     phoneMicEnabled: !!data?.phoneMicEnabled,
                     scorerEnabled: !!data?.scorerEnabled,
                     reactionsEnabled: !!data?.reactionsEnabled,
+                    phoneMicExperimental: data?.phoneMicExperimental === true,
+                    scorerExperimental: data?.scorerExperimental === true,
+                    reactionsExperimental: data?.reactionsExperimental === true,
                 });
                 setLoadError(null);
             })
@@ -110,11 +117,11 @@ export default function FeaturesPage() {
         );
     }, [search]);
 
-    async function toggle(f: Feature) {
+    async function toggle(key: keyof Flags) {
         if (!flags) return;
-        const next = { ...flags, [f.key]: !flags[f.key] };
+        const next = { ...flags, [key]: !flags[key] };
         setFlags(next); // optimistic
-        setSaving(f.key);
+        setSaving(key);
         try {
             const csrf = getCsrfCookie() ?? "";
             const res = await fetch("/api/admin/flags", {
@@ -185,28 +192,15 @@ export default function FeaturesPage() {
                 <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {filtered.map((f) => {
                         const enabled = flags[f.key];
-                        const isSaving = saving === f.key;
+                        const isSaving = saving === f.key || saving === f.experimentalKey;
                         return (
                             <li key={f.key}>
                                 <Card
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={enabled}
-                                    onClick={() => toggle(f)}
-                                    onKeyDown={(e) => {
-                                        if (
-                                            e.key === "Enter" ||
-                                            e.key === " "
-                                        ) {
-                                            e.preventDefault();
-                                            toggle(f);
-                                        }
-                                    }}
                                     className={
-                                        "flex items-stretch gap-4 p-3 cursor-pointer transition-colors bg-gray-800/70 border " +
+                                        "flex items-stretch gap-4 p-3 transition-colors bg-gray-800/70 border " +
                                         (enabled
-                                            ? "border-purple-500/50 hover:border-purple-400"
-                                            : "border-gray-700 hover:border-gray-600")
+                                            ? "border-purple-500/50"
+                                            : "border-gray-700")
                                     }
                                 >
                                     {/* Left ~20%: icon */}
@@ -229,27 +223,21 @@ export default function FeaturesPage() {
                                         <p className="text-xs text-gray-400">
                                             {f.description}
                                         </p>
+                                        {isSaving && (
+                                            <p className="text-[10px] text-gray-400">Saving…</p>
+                                        )}
                                     </div>
 
-                                    {/* Top-right: radio indicator */}
-                                    <div className="flex flex-col items-center justify-center w-20 shrink-0">
-                                        <span
-                                            aria-hidden="true"
-                                            className={
-                                                "inline-block h-3 w-3 rounded-full border-2 " +
-                                                (enabled
-                                                    ? "bg-purple-400 border-purple-300"
-                                                    : "bg-transparent border-gray-500")
-                                            }
-                                        />
-                                        <span className="mt-1 text-[10px] uppercase tracking-wide text-gray-400">
-                                            {isSaving
-                                                ? "Saving"
-                                                : enabled
-                                                  ? "Enabled"
-                                                  : "Disabled"}
-                                        </span>
-                                    </div>
+                                    <AdminFeatureToggles
+                                        name={f.name}
+                                        enabled={enabled}
+                                        experimental={flags[f.experimentalKey]}
+                                        disabled={saving !== null}
+                                        onEnabledChange={() => void toggle(f.key)}
+                                        onExperimentalChange={() =>
+                                            void toggle(f.experimentalKey)
+                                        }
+                                    />
                                 </Card>
                             </li>
                         );
