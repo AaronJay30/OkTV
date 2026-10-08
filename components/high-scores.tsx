@@ -95,7 +95,7 @@ export const HighScores: React.FC<HighScoresProps> = ({ roomId }) => {
                                     </div>
                                     {song.artist && (
                                         <div className="truncate text-xs text-gray-500">
-                                            {song.artist}
+                                            {truncateScoreTitle(song.artist)}
                                         </div>
                                     )}
                                 </div>
